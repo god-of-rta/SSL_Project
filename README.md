@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # SysMon — Unix System Monitoring Dashboard
 
 > **Topic #6: Unix System Monitoring**  
