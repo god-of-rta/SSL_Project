@@ -21,6 +21,8 @@ CONFIG_FILE="$REPO_ROOT/config/sysmon.conf"
 parse_config() {
     [[ -f "$CONFIG_FILE" ]] || return 0
     while IFS='=' read -r raw_key raw_val; do
+        raw_key="${raw_key//$'\r'/}"
+        raw_val="${raw_val//$'\r'/}"
         raw_key="${raw_key%%[#;]*}"
         raw_key="${raw_key#"${raw_key%%[![:space:]]*}"}"
         raw_key="${raw_key%"${raw_key##*[![:space:]]}"}"
@@ -86,12 +88,24 @@ log_msg() {
     printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$*" >> "$LOG_FILE"
 }
 
-# Acquire exclusive lock (INTERFACES.md Section 3.3)
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-    log_msg "ERROR: Another collector instance holds $LOCK_FILE. Exiting."
-    echo "Collector is already running (lock held)." >&2
-    exit 2
+# Acquire exclusive lock (flock on Linux, PID-lock fallback on Git Bash/MSYS2)
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"$LOCK_FILE"
+    if ! flock -n 9; then
+        log_msg "ERROR: Another collector instance holds $LOCK_FILE. Exiting."
+        echo "Collector is already running (lock held)." >&2
+        exit 2
+    fi
+else
+    if [[ -f "$LOCK_FILE" ]]; then
+        EXISTING_PID="$(tr -d '\r\n ' < "$LOCK_FILE" 2>/dev/null || true)"
+        if [[ "$EXISTING_PID" =~ ^[0-9]+$ ]] && [[ "$EXISTING_PID" -ne "$$" ]] && kill -0 "$EXISTING_PID" 2>/dev/null; then
+            log_msg "ERROR: Another collector instance (PID $EXISTING_PID) holds $LOCK_FILE. Exiting."
+            echo "Collector is already running (lock held)." >&2
+            exit 2
+        fi
+    fi
+    printf "%d\n" "$$" > "$LOCK_FILE"
 fi
 
 printf "%d\n" "$$" > "$PID_FILE"
@@ -112,10 +126,10 @@ AMD_CARD_DIR=""
 detect_gpu() {
     if command -v nvidia-smi >/dev/null 2>&1; then
         local nv_name
-        nv_name="$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits -i 0 2>/dev/null | head -n 1 || true)"
+        nv_name="$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits -i 0 2>/dev/null | tr -d '\r' | head -n 1 || true)"
         nv_name="${nv_name#"${nv_name%%[![:space:]]*}"}"
         nv_name="${nv_name%"${nv_name##*[![:space:]]}"}"
-        if [[ -n "$nv_name" && ! "$nv_name" =~ "NVIDIA-SMI has failed" ]]; then
+        if [[ -n "$nv_name" && ! "$nv_name" =~ "NVIDIA-SMI has failed" && ! "$nv_name" =~ "Unable to" ]]; then
             GPU_VENDOR="nvidia"
             GPU_NAME="$nv_name"
             return 0
@@ -128,7 +142,7 @@ detect_gpu() {
             GPU_VENDOR="amd"
             AMD_CARD_DIR="$card_path"
             if command -v lspci >/dev/null 2>&1; then
-                GPU_NAME="$(lspci 2>/dev/null | grep -iE "VGA|3D|Display" | grep -iE "AMD|ATI|Radeon" | head -n 1 | sed -E 's/^[^:]+: [^:]+: //' || true)"
+                GPU_NAME="$(lspci 2>/dev/null | tr -d '\r' | grep -iE "VGA|3D|Display" | grep -iE "AMD|ATI|Radeon" | head -n 1 | sed -E 's/^[^:]+: [^:]+: //' || true)"
             fi
             [[ -z "$GPU_NAME" ]] && GPU_NAME="AMD Radeon GPU"
             return 0
@@ -142,7 +156,7 @@ detect_gpu() {
 detect_gpu
 
 json_escape() {
-    local s="$1"
+    local s="${1//$'\r'/}"
     s="${s//\\/\\\\}"
     s="${s//\"/\\\"}"
     printf "%s" "$s"
@@ -152,22 +166,21 @@ json_escape() {
 write_system_info() {
     local collected_at hostname_str kernel_str cpu_model cpu_cores total_ram_mb disk_total_gb cpu_temp_max_c
     collected_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    hostname_str="$(hostname 2>/dev/null || uname -n 2>/dev/null || echo "localhost")"
-    kernel_str="$(uname -r 2>/dev/null | cut -d'-' -f1 || echo "unknown")"
+    hostname_str="$( (hostname 2>/dev/null || uname -n 2>/dev/null || echo "localhost") | tr -d '\r' )"
+    kernel_str="$( (uname -r 2>/dev/null | cut -d'-' -f1 || echo "unknown") | tr -d '\r' )"
 
-    cpu_model="$(awk -F': ' '/^model name/ { print $2; exit }' /proc/cpuinfo 2>/dev/null || true)"
-    [[ -z "$cpu_model" ]] && cpu_model="$(uname -p 2>/dev/null || echo "Unknown CPU")"
-    cpu_cores="$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)"
+    cpu_model="$(awk -F': ' '/^model name/ { gsub(/\r/, "", $2); print $2; exit }' /proc/cpuinfo 2>/dev/null || true)"
+    [[ -z "$cpu_model" ]] && cpu_model="$( (uname -p 2>/dev/null || echo "Unknown CPU") | tr -d '\r' )"
+    cpu_cores="$( (nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1) | tr -d '\r' )"
 
     total_ram_mb="$(awk '/^MemTotal:/ { printf "%d", $2 / 1024 }' /proc/meminfo 2>/dev/null || echo 0)"
     disk_total_gb="$(df -P -k / 2>/dev/null | awk 'NR==2 { printf "%d", $2 / (1024 * 1024) }' || echo 0)"
 
-    # Look at /sys/class/hwmon/*/temp1_max or temp1_crit
     cpu_temp_max_c="null"
     local hw_file raw_limit
     for hw_file in /sys/class/hwmon/*/temp1_max /sys/class/hwmon/*/temp1_crit; do
         [[ -r "$hw_file" ]] || continue
-        raw_limit="$(cat "$hw_file" 2>/dev/null || true)"
+        raw_limit="$(tr -d '\r\n' < "$hw_file" 2>/dev/null || true)"
         if [[ "$raw_limit" =~ ^[0-9]+$ ]] && [[ "$raw_limit" -gt 0 ]]; then
             local deg=$(( raw_limit > 1000 ? raw_limit / 1000 : raw_limit ))
             if [[ "$deg" -ge 50 && "$deg" -le 130 ]]; then
@@ -184,7 +197,7 @@ write_system_info() {
     fi
 
     local tmp_file="${SYSINFO_FILE}.tmp.$$"
-    cat > "$tmp_file" <<EOF
+    cat > "$tmp_file" <<SYS_EOF
 {
   "collected_at": "$collected_at",
   "hostname": "$(json_escape "$hostname_str")",
@@ -196,7 +209,7 @@ write_system_info() {
   "cpu_temp_max_c": $cpu_temp_max_c,
   "gpu": $gpu_json
 }
-EOF
+SYS_EOF
     mv -f "$tmp_file" "$SYSINFO_FILE"
 }
 
@@ -207,48 +220,85 @@ METRICS_HEADER="epoch,iso_time,cpu_pct,mem_used_pct,mem_avail_mb,swap_used_pct,d
 PROCESSES_HEADER="epoch,pid,command,cpu_pct,mem_pct,rank"
 
 read_cpu_stat() {
-    awk '/^cpu / {
-        idle = $5 + $6
-        total = $2 + $3 + $4 + $5 + $6 + $7 + $8 + $9
-        print total, idle
-        exit
-    }' /proc/stat
+    if [[ -r /proc/stat ]]; then
+        awk '/^cpu / {
+            idle = $5 + $6
+            total = $2 + $3 + $4 + $5 + $6 + $7 + $8 + $9
+            print total, idle
+            found = 1
+            exit
+        }
+        END { if (!found) print "0 0" }' /proc/stat
+    else
+        echo "0 0"
+    fi
 }
 
 read_net_bytes() {
-    awk -F'[: ]+' '
-    NR > 2 && $1 != "" && $1 != "lo" {
-        rx += $2
-        tx += $10
-    }
-    END {
-        printf "%.0f %.0f\n", rx, tx
-    }' /proc/net/dev
+    if [[ -r /proc/net/dev ]]; then
+        awk -F'[: ]+' '
+        NR > 2 && $1 != "" && $1 != "lo" {
+            rx += $2
+            tx += $10
+        }
+        END {
+            printf "%.0f %.0f\n", rx, tx
+        }' /proc/net/dev
+    elif command -v netstat >/dev/null 2>&1; then
+        # Fallback for Git Bash / Windows netstat -e
+        netstat -e 2>/dev/null | tr -d '\r' | awk '
+        /^Bytes/ {
+            printf "%.0f %.0f\n", $2, $3
+            found = 1
+            exit
+        }
+        END {
+            if (!found) print "0 0"
+        }'
+    else
+        echo "0 0"
+    fi
 }
 
 read_memory() {
-    awk '
-    /^MemTotal:/     { mem_total = $2 }
-    /^MemAvailable:/ { mem_avail = $2 }
-    /^SwapTotal:/    { swap_total = $2 }
-    /^SwapFree:/     { swap_free = $2 }
-    END {
-        mem_used_pct = (mem_total > 0) ? ((mem_total - mem_avail) / mem_total) * 100.0 : 0.0
-        mem_avail_mb = int(mem_avail / 1024)
-        swap_used_pct = (swap_total > 0) ? ((swap_total - swap_free) / swap_total) * 100.0 : 0.0
-        printf "%.1f %d %.1f\n", mem_used_pct, mem_avail_mb, swap_used_pct
-    }' /proc/meminfo
+    if [[ -r /proc/meminfo ]]; then
+        awk '
+        /^MemTotal:/     { mem_total = $2 }
+        /^MemAvailable:/ { mem_avail = $2; has_avail = 1 }
+        /^MemFree:/      { mem_free = $2 }
+        /^Buffers:/      { buffers = $2 }
+        /^Cached:/       { cached = $2 }
+        /^SwapTotal:/    { swap_total = $2 }
+        /^SwapFree:/     { swap_free = $2 }
+        END {
+            if (!has_avail) mem_avail = mem_free + buffers + cached
+            mem_used_pct = (mem_total > 0) ? ((mem_total - mem_avail) / mem_total) * 100.0 : 0.0
+            if (mem_used_pct < 0) mem_used_pct = 0.0
+            if (mem_used_pct > 100) mem_used_pct = 100.0
+            mem_avail_mb = int(mem_avail / 1024)
+            swap_used_pct = (swap_total > 0) ? ((swap_total - swap_free) / swap_total) * 100.0 : 0.0
+            if (swap_used_pct < 0) swap_used_pct = 0.0
+            if (swap_used_pct > 100) swap_used_pct = 100.0
+            printf "%.1f %d %.1f\n", mem_used_pct, mem_avail_mb, swap_used_pct
+        }' /proc/meminfo
+    else
+        echo "0.0 0 0.0"
+    fi
 }
 
 read_disk_pct() {
-    df -P / 2>/dev/null | awk 'NR==2 {
+    df -P / 2>/dev/null | tr -d '\r' | awk 'NR==2 {
         if ($2 > 0) printf "%.1f\n", ($3 / $2) * 100.0
         else print "0.0"
     }'
 }
 
 read_loadavg() {
-    awk '{ printf "%.2f %.2f %.2f\n", $1, $2, $3 }' /proc/loadavg
+    if [[ -r /proc/loadavg ]]; then
+        awk '{ printf "%.2f %.2f %.2f\n", $1, $2, $3 }' /proc/loadavg
+    else
+        echo "0.00 0.00 0.00"
+    fi
 }
 
 read_cpu_temp() {
@@ -270,7 +320,7 @@ read_cpu_temp() {
     local f raw_val
     for f in /sys/class/thermal/thermal_zone*/temp; do
         [[ -r "$f" ]] || continue
-        raw_val="$(cat "$f" 2>/dev/null || true)"
+        raw_val="$(tr -d '\r\n' < "$f" 2>/dev/null || true)"
         if [[ "$raw_val" =~ ^[0-9]+$ ]] && [[ "$raw_val" -gt 0 ]]; then
             hottest="$(awk -v raw="$raw_val" -v max="$hottest" 'BEGIN {
                 c = (raw > 1000) ? (raw / 1000.0) : raw
@@ -290,7 +340,7 @@ read_cpu_temp() {
     fi
 
     if command -v sensors >/dev/null 2>&1; then
-        hottest="$(sensors 2>/dev/null | awk '
+        hottest="$(sensors 2>/dev/null | tr -d '\r' | awk '
             /Package id 0:|Tctl:|Tdie:|Core [0-9]+:|temp1:/ {
                 for (i = 1; i <= NF; i++) {
                     if ($i ~ /^\+[0-9]+(\.[0-9]+)?°C/) {
@@ -324,7 +374,7 @@ poll_gpu_metrics() {
 
     if [[ "$GPU_VENDOR" == "nvidia" ]]; then
         local nv_out
-        nv_out="$(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits -i 0 2>/dev/null | head -n 1 || true)"
+        nv_out="$(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits -i 0 2>/dev/null | tr -d '\r' | head -n 1 || true)"
         if [[ -n "$nv_out" ]]; then
             awk -F',' '{
                 gsub(/[[:space:]]+/, "", $1)
@@ -340,14 +390,14 @@ poll_gpu_metrics() {
         fi
     elif [[ "$GPU_VENDOR" == "amd" && -n "$AMD_CARD_DIR" ]]; then
         local busy_raw vram_used vram_total temp_raw
-        busy_raw="$(cat "$AMD_CARD_DIR/gpu_busy_percent" 2>/dev/null || true)"
-        vram_used="$(cat "$AMD_CARD_DIR/mem_info_vram_used" 2>/dev/null || true)"
-        vram_total="$(cat "$AMD_CARD_DIR/mem_info_vram_total" 2>/dev/null || true)"
+        busy_raw="$(tr -d '\r\n' < "$AMD_CARD_DIR/gpu_busy_percent" 2>/dev/null || true)"
+        vram_used="$(tr -d '\r\n' < "$AMD_CARD_DIR/mem_info_vram_used" 2>/dev/null || true)"
+        vram_total="$(tr -d '\r\n' < "$AMD_CARD_DIR/mem_info_vram_total" 2>/dev/null || true)"
         temp_raw=""
         local tf
         for tf in "$AMD_CARD_DIR"/hwmon/hwmon*/temp1_input; do
             if [[ -r "$tf" ]]; then
-                temp_raw="$(cat "$tf" 2>/dev/null || true)"
+                temp_raw="$(tr -d '\r\n' < "$tf" 2>/dev/null || true)"
                 break
             fi
         done
@@ -372,15 +422,30 @@ collect_top_processes() {
         printf "%s\n" "$PROCESSES_HEADER" > "$proc_file"
     fi
 
-    ps -eo pid=,comm=,%cpu=,%mem= --sort=-%cpu 2>/dev/null | awk -v ep="$epoch" -v top_n="$TOP_N" '
-    NR <= top_n {
-        pid = $1
-        cpu = $3 + 0
-        mem = $4 + 0
-        cmd = $2
-        gsub(/[, \t\r\n]+/, "_", cmd)
-        printf "%s,%s,%s,%.1f,%.1f,%d\n", ep, pid, cmd, cpu, mem, NR
-    }' >> "$proc_file"
+    local ps_out
+    if ps_out="$(ps -eo pid=,comm=,%cpu=,%mem= --sort=-%cpu 2>/dev/null)" && [[ -n "$ps_out" ]]; then
+        awk -v ep="$epoch" -v top_n="$TOP_N" '
+        NR <= top_n {
+            pid = $1
+            cpu = $3 + 0
+            mem = $4 + 0
+            cmd = $2
+            gsub(/[, \t\r\n]+/, "_", cmd)
+            printf "%s,%s,%s,%.1f,%.1f,%d\n", ep, pid, cmd, cpu, mem, NR
+        }' <<< "$ps_out" >> "$proc_file"
+    else
+        # Fallback for Git Bash / MSYS2 ps where -eo and --sort are unsupported
+        ps -ef 2>/dev/null | tr -d '\r' | awk -v ep="$epoch" -v top_n="$TOP_N" '
+        NR > 1 && count < top_n {
+            count++
+            pid = $2
+            cmd = $NF
+            sub(/^.*\//, "", cmd)
+            gsub(/[, \t\r\n]+/, "_", cmd)
+            if (cmd == "") cmd = "process"
+            printf "%s,%s,%s,0.0,0.0,%d\n", ep, pid, cmd, count
+        }' >> "$proc_file"
+    fi
 }
 
 read -r PREV_CPU_TOTAL PREV_CPU_IDLE <<< "$(read_cpu_stat)"
@@ -449,7 +514,7 @@ while [[ "$RUNNING" -eq 1 ]]; do
     # CPU Temperature
     CPU_TEMP_C="$(read_cpu_temp "$CPU_PCT")"
 
-    # GPU Polling every gpu_poll_every samples (INTERFACES.md Section 3.4)
+    # GPU Polling every gpu_poll_every samples
     if [[ "$COLLECT_GPU" != "true" || "$GPU_VENDOR" == "none" ]]; then
         LAST_GPU_FIELDS=",,"
     elif (( SAMPLE_COUNT % GPU_POLL_EVERY == 0 )); then

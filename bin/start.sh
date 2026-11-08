@@ -11,7 +11,7 @@ DATA_DIR="data"
 CONFIG_FILE="$REPO_ROOT/config/sysmon.conf"
 if [[ -f "$CONFIG_FILE" ]]; then
     cfg_dir="$(awk -F'=' '/^[[:space:]]*data_dir[[:space:]]*=/ {
-        val=$2; sub(/[#;].*$/, "", val); gsub(/^[[:space:]]+|[[:space:]]+$/, "", val); print val
+        val=$2; gsub(/\r/, "", val); sub(/[#;].*$/, "", val); gsub(/^[[:space:]]+|[[:space:]]+$/, "", val); print val
     }' "$CONFIG_FILE")"
     [[ -n "$cfg_dir" ]] && DATA_DIR="$cfg_dir"
 fi
@@ -61,8 +61,7 @@ nohup "$SCRIPT_DIR/collector.sh" "${FORWARD_ARGS[@]}" >> "$LOG_FILE" 2>&1 < /dev
 NEW_PID=$!
 printf "%d\n" "$NEW_PID" > "$PID_FILE"
 
-# Brief pause to verify the process did not immediately fail
-sleep 0.2
+sleep 0.4
 if ! "$SCRIPT_DIR/status.sh"; then
     echo "Error: Collector failed to start. Check $LOG_FILE." >&2
     exit 1

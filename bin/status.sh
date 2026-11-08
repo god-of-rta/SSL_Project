@@ -10,7 +10,7 @@ DATA_DIR="data"
 CONFIG_FILE="$REPO_ROOT/config/sysmon.conf"
 if [[ -f "$CONFIG_FILE" ]]; then
     cfg_dir="$(awk -F'=' '/^[[:space:]]*data_dir[[:space:]]*=/ {
-        val=$2; sub(/[#;].*$/, "", val); gsub(/^[[:space:]]+|[[:space:]]+$/, "", val); print val
+        val=$2; gsub(/\r/, "", val); sub(/[#;].*$/, "", val); gsub(/^[[:space:]]+|[[:space:]]+$/, "", val); print val
     }' "$CONFIG_FILE")"
     [[ -n "$cfg_dir" ]] && DATA_DIR="$cfg_dir"
 fi
@@ -21,16 +21,19 @@ if [[ ! -f "$PID_FILE" ]]; then
     exit 1
 fi
 
-PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+PID="$(tr -d '\r\n ' < "$PID_FILE" 2>/dev/null || true)"
 if [[ -z "$PID" ]] || ! [[ "$PID" =~ ^[0-9]+$ ]]; then
     rm -f "$PID_FILE"
     exit 1
 fi
 
 if kill -0 "$PID" 2>/dev/null; then
-    # Verify it is not a recycled PID from an unrelated process
-    CMDLINE="$(tr '\0' ' ' < "/proc/$PID/cmdline" 2>/dev/null || ps -p "$PID" -o args= 2>/dev/null || true)"
-    if [[ "$CMDLINE" == *"collector.sh"* ]]; then
+    if [[ -r "/proc/$PID/cmdline" ]]; then
+        CMDLINE="$(tr '\0' ' ' < "/proc/$PID/cmdline" 2>/dev/null || true)"
+        if [[ -z "$CMDLINE" || "$CMDLINE" == *"collector.sh"* || "$CMDLINE" == *"bash"* ]]; then
+            exit 0
+        fi
+    else
         exit 0
     fi
 fi

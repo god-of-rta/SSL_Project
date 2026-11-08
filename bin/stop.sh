@@ -11,7 +11,7 @@ DATA_DIR="data"
 CONFIG_FILE="$REPO_ROOT/config/sysmon.conf"
 if [[ -f "$CONFIG_FILE" ]]; then
     cfg_dir="$(awk -F'=' '/^[[:space:]]*data_dir[[:space:]]*=/ {
-        val=$2; sub(/[#;].*$/, "", val); gsub(/^[[:space:]]+|[[:space:]]+$/, "", val); print val
+        val=$2; gsub(/\r/, "", val); sub(/[#;].*$/, "", val); gsub(/^[[:space:]]+|[[:space:]]+$/, "", val); print val
     }' "$CONFIG_FILE")"
     [[ -n "$cfg_dir" ]] && DATA_DIR="$cfg_dir"
 fi
@@ -24,7 +24,7 @@ if ! "$SCRIPT_DIR/status.sh"; then
     exit 0
 fi
 
-PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+PID="$(tr -d '\r\n ' < "$PID_FILE" 2>/dev/null || true)"
 if [[ -z "$PID" ]]; then
     rm -f "$PID_FILE" "$LOCK_FILE"
     exit 0
@@ -35,7 +35,6 @@ if ! kill -TERM "$PID" 2>/dev/null; then
     exit 0
 fi
 
-# Wait up to 5 seconds for clean termination
 for _ in {1..50}; do
     if ! kill -0 "$PID" 2>/dev/null; then
         rm -f "$PID_FILE" "$LOCK_FILE"
@@ -44,7 +43,6 @@ for _ in {1..50}; do
     sleep 0.1
 done
 
-# Fallback SIGKILL if stuck
 if kill -0 "$PID" 2>/dev/null; then
     kill -KILL "$PID" 2>/dev/null || true
     sleep 0.1
