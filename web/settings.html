@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#e9eaee">
+    <title>SysMon | Settings</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body data-page="settings">
+
+    <div class="shell">
+        <aside class="sidebar" id="sidebar"></aside>
+
+        <main class="workspace">
+
+            <header class="topbar">
+                <h1>Settings</h1>
+                <div class="header-actions">
+                    <button class="btn btn-quiet" id="applyDemo" type="button">Apply demo profile</button>
+                    <button class="btn btn-quiet" id="resetDefaults" type="button">Reset to defaults</button>
+                </div>
+            </header>
+
+            <div class="notice" id="settingsError" hidden role="alert"></div>
+
+            <section class="panel" style="margin-bottom:16px">
+                <div class="panel-heading">
+                    <div>
+                        <h2>Collection</h2>
+                        <p>How often data is gathered and analysed</p>
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="interval_s">Sampling interval (seconds)</label>
+                        <input class="input" type="number" min="1" id="interval_s" data-field="sysmon.interval_s">
+                        <div class="hint">How often the collector reads the system</div>
+                    </div>
+                    <div class="field">
+                        <label for="pipeline_interval_s">Analysis interval (seconds)</label>
+                        <input class="input" type="number" min="1" id="pipeline_interval_s"
+                            data-field="sysmon.pipeline_interval_s">
+                        <div class="hint">How often cleaning, stats and alerts run</div>
+                    </div>
+                    <div class="field">
+                        <label for="gpu_poll_every">GPU poll every (samples)</label>
+                        <input class="input" type="number" min="1" id="gpu_poll_every"
+                            data-field="sysmon.gpu_poll_every">
+                        <div class="hint">Higher values avoid waking a sleeping GPU</div>
+                    </div>
+                    <div class="field">
+                        <span class="label">GPU monitoring</span>
+                        <label class="switch"><input type="checkbox" id="collect_gpu"
+                                data-field="sysmon.collect_gpu"><span class="track"></span>Collect GPU data</label>
+                    </div>
+                    <div class="field">
+                        <span class="label">Temperature</span>
+                        <label class="switch"><input type="checkbox" id="simulate_temp"
+                                data-field="sysmon.simulate_temp"><span class="track"></span>Simulate CPU
+                            temperature</label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-heading">
+                    <div>
+                        <h2>Alert rules</h2>
+                        <p>An alert fires when a metric stays past its limit for the number of samples set below</p>
+                    </div>
+                    <button class="btn btn-quiet btn-sm" id="addRule" type="button">Add rule</button>
+                </div>
+
+                <div class="table-wrap">
+                    <table class="rules-table">
+                        <thead>
+                            <tr>
+                                <th>On</th>
+                                <th>Rule</th>
+                                <th>Metric</th>
+                                <th>Condition</th>
+                                <th>Limit</th>
+                                <th>Samples in a row</th>
+                                <th>Cooldown (s)</th>
+                                <th>Severity</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="rulesBody">
+                            <tr>
+                                <td colspan="9" class="empty-cell">Loading settings…</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <div class="savebar">
+                <span id="saveStatus">No changes</span>
+                <div class="savebar-actions">
+                    <button class="btn btn-quiet" id="discardChanges" type="button" disabled>Discard</button>
+                    <button class="btn btn-primary" id="saveSettings" type="button" disabled>Save changes</button>
+                </div>
+            </div>
+
+            <footer class="page-footer">
+                <span>SysMon · Settings</span>
+                <span>Changes apply on the next analysis run</span>
+            </footer>
+        </main>
+    </div>
+
+    <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+    <script src="js/common.js"></script>
+    <script src="js/settings.js"></script>
+</body>
+
+</html>

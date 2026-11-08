@@ -4,272 +4,177 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SysMon | Performance Trends</title>
+    <meta name="theme-color" content="#e9eaee">
+    <title>SysMon | Trends</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="trends.css">
 </head>
 
-<body>
+<body data-page="trends">
 
-    <div class="app-layout">
+    <div class="shell">
+        <aside class="sidebar" id="sidebar"></aside>
 
-        <!-- SIDEBAR -->
-        <aside class="sidebar">
-            <a href="index.html" class="brand">
-                <div class="brand-mark">S</div>
-                <div class="brand-name">SYSMON</div>
-            </a>
-
-            <div class="nav-caption">MONITORING</div>
-
-            <nav class="nav-menu">
-                <a href="index.html" class="nav-item">
-                    <span class="nav-icon">▦</span>
-                    <span>Dashboard</span>
-                </a>
-                <a href="trends.html" class="nav-item active">
-                    <span class="nav-icon">⌁</span>
-                    <span>Performance Trends</span>
-                </a>
-                <a href="processes.html" class="nav-item">
-                    <span class="nav-icon">▤</span>
-                    <span>Processes</span>
-                </a>
-                <a href="alerts.html" class="nav-item">
-                    <span class="nav-icon">♧</span>
-                    <span>Alerts</span>
-                </a>
-            </nav>
-
-            <div class="nav-caption settings-caption">PREFERENCES</div>
-            <nav class="nav-menu">
-                <a href="settings.html" class="nav-item">
-                    <span class="nav-icon">⚙</span>
-                    <span>Settings</span>
-                </a>
-            </nav>
-
-            <div class="sidebar-spacer"></div>
-
-            <div class="sidebar-status">
-                <div class="status-heading">
-                    <span class="status-indicator" id="sidebarDot"></span>
-                    <span>MONITOR STATUS</span>
-                </div>
-                <strong id="sidebarStatus">Disconnected</strong>
-                <small>System monitoring service</small>
-            </div>
-
-            <div class="sidebar-footer">
-                <span class="footer-logo">S</span>
-                <div>
-                    <strong>SysMon</strong>
-                    <small>System Monitor v1.0</small>
-                </div>
-            </div>
-        </aside>
-
-
-        <!-- MAIN CONTENT -->
         <main class="workspace">
 
             <header class="topbar">
-                <div class="page-heading">
-                    <div class="breadcrumb">Monitoring <span>/</span> Analytics</div>
-                    <h1>Performance Trends</h1>
-                    <p>Explore historical system performance and resource utilization.</p>
-                </div>
-
+                <h1>Performance trends</h1>
                 <div class="header-actions">
-                    <div class="connection-pill">
-                        <span class="status-indicator" id="connectionDot"></span>
-                        <span id="connectionText">Offline</span>
+                    <div class="segmented range-options" role="group" aria-label="Time range">
+                        <button type="button" class="range-button" data-range="1h">1 hour</button>
+                        <button type="button" class="range-button active" data-range="24h">24 hours</button>
+                        <button type="button" class="range-button" data-range="7d">7 days</button>
                     </div>
-                    <button class="icon-button" id="refreshButton" title="Refresh">↻</button>
-                    <div class="user-avatar">SM</div>
+                    <button class="btn btn-ghost" id="refreshButton" type="button">
+                        <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 12a8 8 0 1 1-2.5-5.8L20 8" />
+                            <path d="M20 3v5h-5" />
+                        </svg>
+                        Refresh
+                    </button>
                 </div>
             </header>
 
-
-            <!-- TIME FILTERS -->
-            <section class="trend-filters">
-                <div class="trend-filter-heading">
-                    <div>
-                        <h2>Analytics overview</h2>
-                        <p>Select a time range to explore system metrics.</p>
-                    </div>
-                </div>
-
-                <div class="range-options" role="group" aria-label="Time range">
-                    <button class="range-button" data-range="1h">Last 1 hour</button>
-                    <button class="range-button active" data-range="24h">Last 24 hours</button>
-                    <button class="range-button" data-range="7d">Last 7 days</button>
-                </div>
+            <!-- AVERAGES -->
+            <section class="trend-summary-grid" aria-label="Averages for the selected period">
+                <article class="stat-card">
+                    <div class="stat-head"><span>CPU average</span></div>
+                    <div class="stat-value"><strong id="cpuAverage">--</strong></div>
+                    <div class="stat-meta">Mean utilization</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-head"><span>Memory average</span></div>
+                    <div class="stat-value"><strong id="memoryAverage">--</strong></div>
+                    <div class="stat-meta">Mean utilization</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-head"><span>Disk average</span></div>
+                    <div class="stat-value"><strong id="diskAverage">--</strong></div>
+                    <div class="stat-meta">Mean utilization</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-head"><span>GPU average</span></div>
+                    <div class="stat-value"><strong id="gpuAverage">n/a</strong></div>
+                    <div class="stat-meta">When a GPU is present</div>
+                </article>
             </section>
 
-
-            <!-- SUMMARY CARDS -->
-            <section class="trend-summary-grid">
-
-                <article class="trend-summary-card">
-                    <span>CPU AVERAGE</span>
-                    <strong id="cpuAverage">--</strong>
-                    <small>Mean utilization</small>
-                </article>
-
-                <article class="trend-summary-card">
-                    <span>MEMORY AVERAGE</span>
-                    <strong id="memoryAverage">--</strong>
-                    <small>Mean utilization</small>
-                </article>
-
-                <article class="trend-summary-card">
-                    <span>DISK AVERAGE</span>
-                    <strong id="diskAverage">--</strong>
-                    <small>Mean utilization</small>
-                </article>
-
-                <article class="trend-summary-card">
-                    <span>GPU AVERAGE</span>
-                    <strong id="gpuAverage">n/a</strong>
-                    <small>When available</small>
-                </article>
-
-            </section>
-
-
-            <!-- MAIN PERFORMANCE CHART -->
+            <!-- MAIN CHART -->
             <section class="panel trend-main-panel">
                 <div class="panel-heading">
                     <div>
                         <h2>Resource utilization</h2>
-                        <p>CPU, memory and disk usage over time</p>
+                        <p>CPU, memory and disk over time</p>
                     </div>
-                    <span class="trend-live-label">
-                        <span class="status-indicator"></span>
-                        Historical data
-                    </span>
-                </div>
-
-                <div class="trend-legend">
-                    <span><i class="legend-dot cpu-legend"></i> CPU</span>
-                    <span><i class="legend-dot memory-legend"></i> Memory</span>
-                    <span><i class="legend-dot disk-legend"></i> Disk</span>
+                    <div class="trend-legend">
+                        <span><i class="legend-dot" style="background:#2f66f0"></i>CPU</span>
+                        <span><i class="legend-dot" style="background:#22c55e"></i>Memory</span>
+                        <span><i class="legend-dot" style="background:#f5a524"></i>Disk</span>
+                    </div>
                 </div>
 
                 <div class="trend-chart-container">
-                    <canvas id="resourceChart" aria-label="Historical CPU, memory and disk utilization chart">
-                    </canvas>
-                    <div class="trend-empty" id="resourceEmpty">
-                        No performance data available yet.
-                    </div>
+                    <canvas id="resourceChart" aria-label="Historical CPU, memory and disk utilization chart"></canvas>
+                    <div class="empty-block" id="resourceEmpty">No performance data yet.</div>
                 </div>
             </section>
 
-
-            <!-- TEMPERATURE AND NETWORK -->
-            <section class="trend-secondary-grid">
-
-                <article class="panel trend-chart-panel">
+            <!-- TEMPERATURE + NETWORK -->
+            <section class="split">
+                <article class="panel">
                     <div class="panel-heading">
                         <div>
-                            <h2>Temperature monitoring</h2>
-                            <p>CPU and GPU temperature</p>
+                            <h2>Temperature</h2>
+                            <p>CPU and GPU</p>
+                        </div>
+                        <div class="trend-legend">
+                            <span><i class="legend-dot" style="background:#f0476b"></i>CPU</span>
+                            <span><i class="legend-dot" style="background:#8b6cf0"></i>GPU</span>
                         </div>
                     </div>
-
                     <div class="trend-chart-container secondary-chart">
-                        <canvas id="temperatureChart" aria-label="CPU and GPU temperature chart">
-                        </canvas>
-                        <div class="trend-empty" id="temperatureEmpty">
-                            Temperature data unavailable.
-                        </div>
+                        <canvas id="temperatureChart" aria-label="CPU and GPU temperature chart"></canvas>
+                        <div class="empty-block" id="temperatureEmpty">Temperature data unavailable.</div>
                     </div>
                 </article>
 
-
-                <article class="panel trend-chart-panel">
+                <article class="panel">
                     <div class="panel-heading">
                         <div>
-                            <h2>Network activity</h2>
-                            <p>Receive and transmit rates</p>
+                            <h2>Network</h2>
+                            <p>Receive and transmit, kbps</p>
+                        </div>
+                        <div class="trend-legend">
+                            <span><i class="legend-dot" style="background:#2f66f0"></i>Receive</span>
+                            <span><i class="legend-dot" style="background:#22c55e"></i>Transmit</span>
                         </div>
                     </div>
-
                     <div class="trend-chart-container secondary-chart">
-                        <canvas id="networkChart" aria-label="Network receive and transmit chart">
-                        </canvas>
-                        <div class="trend-empty" id="networkEmpty">
-                            Network data unavailable.
-                        </div>
+                        <canvas id="networkChart" aria-label="Network receive and transmit chart"></canvas>
+                        <div class="empty-block" id="networkEmpty">Network data unavailable.</div>
                     </div>
                 </article>
-
             </section>
 
-
             <!-- STATISTICS -->
-            <section class="panel statistics-panel">
+            <section class="panel" style="margin-bottom:16px">
                 <div class="panel-heading">
                     <div>
                         <h2>Performance statistics</h2>
-                        <p>Statistical analysis for the selected period</p>
+                        <p>Statistical summary for the selected period</p>
                     </div>
-                    <span class="statistics-range" id="statisticsRange">Last 24 hours</span>
+                    <span class="badge info" id="statisticsRange">Last 24 hours</span>
                 </div>
 
                 <div class="table-wrap">
-                    <table>
+                    <table class="stats-table">
                         <thead>
                             <tr>
-                                <th>METRIC</th>
-                                <th>AVERAGE</th>
-                                <th>MINIMUM</th>
-                                <th>MAXIMUM</th>
-                                <th>95TH PERCENTILE</th>
-                                <th>STD DEVIATION</th>
+                                <th>Metric</th>
+                                <th class="num">Average</th>
+                                <th class="num">Minimum</th>
+                                <th class="num">Maximum</th>
+                                <th class="num">95th percentile</th>
+                                <th class="num">Std deviation</th>
                             </tr>
                         </thead>
                         <tbody id="statisticsBody">
                             <tr>
-                                <td colspan="6" class="empty-cell">
-                                    No statistics available yet.
-                                </td>
+                                <td colspan="6" class="empty-cell">No statistics yet. Run the analysis from the
+                                    dashboard.</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </section>
 
-
             <!-- DAILY SUMMARY -->
-            <section class="panel daily-summary-panel">
+            <section class="panel">
                 <div class="panel-heading">
                     <div>
                         <h2>Daily system summary</h2>
-                        <p>Generated performance report</p>
+                        <p>Generated gnuplot report</p>
                     </div>
-                    <span class="report-tag">GNUPLOT REPORT</span>
                 </div>
 
                 <div class="daily-summary-content" id="dailySummary">
-                    <div class="report-placeholder">
-                        <div class="report-icon">▧</div>
+                    <div class="empty-state">
                         <strong>Daily report not generated yet</strong>
-                        <p>The Gnuplot summary will appear here when generated.</p>
+                        The gnuplot summary appears here once it has been generated.
                     </div>
                 </div>
             </section>
 
-
             <footer class="page-footer">
-                <span>SysMon · Performance Analytics</span>
+                <span>SysMon · Performance analytics</span>
                 <span>Historical monitoring data</span>
             </footer>
-
         </main>
     </div>
 
+    <script src="static/chart.umd.js"></script>
+    <script src="js/common.js"></script>
     <script src="js/trends.js"></script>
 </body>
 
