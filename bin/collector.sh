@@ -127,6 +127,97 @@ read_loadavg() {
     awk '{ printf "%.2f %.2f %.2f\n", $1, $2, $3 }' /proc/loadavg
 }
 
+PROCESSES_HEADER="epoch,pid,command,cpu_pct,mem_pct,rank"
+
+read_cpu_temp() {
+    local cpu_load="${1:-10.0}"
+
+    if [[ "$SIMULATE_TEMP" == "true" ]]; then
+        awk -v cpu="$cpu_load" -v seed="$RANDOM" 'BEGIN {
+            srand(seed)
+            jitter = (rand() - 0.5) * 3.0
+            temp = 42.0 + (cpu * 0.42) + jitter
+            if (temp < 35.0) temp = 35.0
+            if (temp > 98.0) temp = 98.0
+            printf "%.1f\n", temp
+        }'
+        return 0
+    fi
+
+    # 1. Try /sys/class/thermal/thermal_zone*/temp (pick hottest zone)
+    local hottest=""
+    local f raw_val
+    for f in /sys/class/thermal/thermal_zone*/temp; do
+        [[ -r "$f" ]] || continue
+        raw_val="$(cat "$f" 2>/dev/null || true)"
+        if [[ "$raw_val" =~ ^[0-9]+$ ]] && [[ "$raw_val" -gt 0 ]]; then
+            hottest="$(awk -v raw="$raw_val" -v max="$hottest" 'BEGIN {
+                c = (raw > 1000) ? (raw / 1000.0) : raw
+                if (c > 0 && c < 120) {
+                    if (max == "" || c > max) printf "%.1f", c
+                    else printf "%s", max
+                } else {
+                    printf "%s", max
+                }
+            }')"
+        fi
+    done
+
+    if [[ -n "$hottest" ]]; then
+        printf "%s\n" "$hottest"
+        return 0
+    fi
+
+    # 2. Fallback to lm-sensors if installed
+    if command -v sensors >/dev/null 2>&1; then
+        hottest="$(sensors 2>/dev/null | awk '
+            /Package id 0:|Tctl:|Tdie:|Core [0-9]+:|temp1:/ {
+                for (i = 1; i <= NF; i++) {
+                    if ($i ~ /^\+[0-9]+(\.[0-9]+)?°C/) {
+                        val = $i
+                        gsub(/^\+|°C.*/, "", val)
+                        val += 0
+                        if (val > 0 && val < 120 && (max == "" || val > max)) {
+                            max = val
+                        }
+                    }
+                }
+            }
+            END {
+                if (max != "") printf "%.1f\n", max
+            }
+        ')"
+        if [[ -n "$hottest" ]]; then
+            printf "%s\n" "$hottest"
+            return 0
+        fi
+    fi
+
+    # 3. Unavailable -> empty string
+    printf ""
+}
+
+collect_top_processes() {
+    local epoch="$1"
+    local date_str="$2"
+    local proc_file="$RAW_DIR/processes_${date_str}.csv"
+
+    if [[ ! -f "$proc_file" ]]; then
+        printf "%s\n" "$PROCESSES_HEADER" > "$proc_file"
+    fi
+
+    ps -eo pid=,comm=,%cpu=,%mem= --sort=-%cpu 2>/dev/null | awk -v ep="$epoch" -v top_n="$TOP_N" '
+    NR <= top_n {
+        pid = $1
+        cpu = $3 + 0
+        mem = $4 + 0
+        # Reconstruct comm in case it contains spaces
+        cmd = $2
+        gsub(/[, \t\r\n]+/, "_", cmd)
+        printf "%s,%s,%s,%.1f,%.1f,%d\n", ep, pid, cmd, cpu, mem, NR
+    }' >> "$proc_file"
+}
+
 RUNNING=1
 trap 'RUNNING=0' SIGTERM SIGINT
 
@@ -193,10 +284,12 @@ while [[ "$RUNNING" -eq 1 ]]; do
     PREV_EPOCH="$EPOCH"
 
     # Placeholders for P2-3 (temp) and P2-4 (GPU)
-    CPU_TEMP_C=""
+    CPU_TEMP_C="$(read_cpu_temp "$CPU_PCT")"
     GPU_UTIL_PCT=""
     GPU_MEM_USED_PCT=""
     GPU_TEMP_C=""
+    # Top N Processes
+    collect_top_processes "$EPOCH" "$DATE_STR"
 
     METRICS_FILE="$RAW_DIR/metrics_${DATE_STR}.csv"
     if [[ ! -f "$METRICS_FILE" ]]; then
