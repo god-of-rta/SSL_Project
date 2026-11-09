@@ -10,6 +10,7 @@ explain the code and documents they submitted.
 | Person | Tools used | Used for | Files / sections |
 |---|---|---|---|
 | Varun | Claude | planning, design review, debugging | docs/INTERFACES.md  |
+| Harsha | Claude | background collector, control scripts, cross-platform fallbacks | bin/collector.sh, bin/start.sh, bin/stop.sh, bin/status.sh |
 
 ## Per-person log
 ### Varun 
@@ -19,10 +20,10 @@ explain the code and documents they submitted.
 - **How I checked it:**
 
 ### Harsha 
-- **Tools:** 
-- **What I used AI for:** 
-- **What the AI produced vs. what I wrote or changed myself:** 
-- **How I checked it:**
+- **Tools:** Gemini
+- **What I used AI for:** Shell script skeletons, cross-platform flock/ps fallbacks, and signal handling.
+- **What the AI produced vs. what I wrote or changed myself:** Verified the scripts by running them and checking for deadlocks.
+- **How I checked it:** Tested start/stop/status scripts and verified outputs in data/raw/metrics_*.csv and system_info.json.
 
 ### Prerit 
 - **Tools:** 

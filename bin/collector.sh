@@ -112,7 +112,10 @@ printf "%d\n" "$$" > "$PID_FILE"
 
 cleanup() {
     log_msg "INFO: Collector (PID $$) stopping cleanly."
-    rm -f "$PID_FILE" "$LOCK_FILE"
+    if [[ -f "$PID_FILE" ]] && [[ "$(tr -d '\r\n ' < "$PID_FILE" 2>/dev/null)" == "$$" ]]; then
+        rm -f "$PID_FILE"
+    fi
+    rm -f "$LOCK_FILE"
 }
 RUNNING=1
 trap 'RUNNING=0' SIGTERM SIGINT
@@ -461,8 +464,8 @@ while [[ "$RUNNING" -eq 1 ]]; do
     [[ "$RUNNING" -eq 0 ]] && break
 
     EPOCH="$(date -u +%s)"
-    ISO_TIME="$(date -u -d "@$EPOCH" +"%Y-%m-%dT%H:%M:%SZ")"
-    DATE_STR="$(date -u -d "@$EPOCH" +"%Y%m%d")"
+    ISO_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    DATE_STR="$(date -u +"%Y%m%d")"
 
     # CPU delta
     read -r CURR_CPU_TOTAL CURR_CPU_IDLE <<< "$(read_cpu_stat)"

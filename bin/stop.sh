@@ -31,6 +31,10 @@ if [[ -z "$PID" ]]; then
 fi
 
 if ! kill -TERM "$PID" 2>/dev/null; then
+    if kill -0 "$PID" 2>/dev/null; then
+        echo "Error: Permission denied stopping collector process $PID" >&2
+        exit 1
+    fi
     rm -f "$PID_FILE" "$LOCK_FILE"
     exit 0
 fi
