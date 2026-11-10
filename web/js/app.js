@@ -1,653 +1,382 @@
-
 /*
- * SysMon - Dashboard frontend
- * P3: Frontend
- *
- * The frontend communicates with the Flask API.
- * It does not collect system metrics itself.
+ * SysMon - Dashboard
+ * Talks to the Flask API only (see docs/INTERFACES.md section 9).
+ * Shared helpers live in common.js.
  */
 
-// Change this if your Flask backend uses another port.
-const API_BASE = "http://127.0.0.1:5000";
-
-const $ = (id) => document.getElementById(id);
-
 let refreshTimer = null;
-let refreshSeconds = 10;
-let previousAlertIds = new Set();
+let activeMetric = "cpu_pct";
+let metricsData = null;
 
-const state = {
-    online: false,
-    status: null,
-    system: null,
-    metrics: null,
-    alerts: [],
-    processes: []
-};
+const RANGE_NAMES = { "1h": "last hour", "24h": "last 24 hours", "7d": "last 7 days" };
 
 
 // --------------------------------------------------
-// API HELPERS
+// METRICS HELPERS
 // --------------------------------------------------
 
-async function apiRequest(path, options = {}) {
-    const response = await fetch(`${API_BASE}${path}`, {
-        ...options,
-        headers: {
-            "Content-Type": "application/json",
-            ...(options.headers || {})
-        }
+function series(data, column) {
+    const index = data?.columns?.indexOf(column) ?? -1;
+    if (index < 0) return [];
+    return (data.rows || []).map((row) => num(row[index]));
+}
+
+function lastValue(values) {
+    for (let i = values.length - 1; i >= 0; i--) {
+        if (values[i] !== null) return values[i];
+    }
+    return null;
+}
+
+function levelFor(value, warn, crit) {
+    if (value === null) return "";
+    return value >= crit ? "crit" : value >= warn ? "warn" : "ok";
+}
+
+function sparkline(id, values) {
+    const svg = $(id);
+    if (!svg) return;
+
+    const usable = values.filter((v) => v !== null).slice(-60);
+    if (usable.length < 2) { svg.innerHTML = ""; return; }
+
+    const min = Math.min(...usable);
+    const max = Math.max(...usable);
+    const span = max - min || 1;
+
+    const points = usable.map((v, i) => {
+        const x = (i / (usable.length - 1)) * 120;
+        const y = 30 - ((v - min) / span) * 26;
+        return `${x.toFixed(1)} ${y.toFixed(1)}`;
     });
 
-    if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-    }
-
-    if (response.status === 204) return null;
-
-    return response.json();
-}
-
-function firstValue(object, keys) {
-    if (!object || typeof object !== "object") return undefined;
-
-    for (const key of keys) {
-        if (object[key] !== undefined && object[key] !== null) {
-            return object[key];
-        }
-    }
-
-    return undefined;
-}
-
-function findValue(object, keys) {
-    if (!object || typeof object !== "object") return undefined;
-
-    const direct = firstValue(object, keys);
-    if (direct !== undefined) return direct;
-
-    for (const value of Object.values(object)) {
-        if (value && typeof value === "object") {
-            const result = findValue(value, keys);
-            if (result !== undefined) return result;
-        }
-    }
-
-    return undefined;
-}
-
-function numericValue(value) {
-    if (value === undefined || value === null || value === "") {
-        return null;
-    }
-
-    const result = Number(value);
-    return Number.isFinite(result) ? result : null;
-}
-
-function formatMetric(value, decimals = 1) {
-    const number = numericValue(value);
-    return number === null ? "--" : number.toFixed(decimals);
-}
-
-function setText(id, value) {
-    const element = $(id);
-    if (element) element.textContent = value;
-}
-
-function setProgress(id, value) {
-    const element = $(id);
-    if (!element) return;
-
-    const number = numericValue(value);
-
-    element.style.width = number === null
-        ? "0%"
-        : `${Math.min(100, Math.max(0, number))}%`;
+    const line = "M " + points.join(" L ");
+    svg.innerHTML =
+        `<path class="spark-area" d="${line} L 120 34 L 0 34 Z"/>` +
+        `<path class="spark-line" d="${line}"/>`;
 }
 
 
 // --------------------------------------------------
-// NOTIFICATIONS
+// STAT CARDS
 // --------------------------------------------------
 
-function showToast(message, type = "info") {
-    const container = $("toastContainer");
-    if (!container) return;
+function updateCards(data, system) {
+    const cards = [
+        { key: "cpu", column: "cpu_pct", warn: 70, crit: 90, meta: "Processor load" },
+        { key: "memory", column: "mem_used_pct", warn: 75, crit: 90, meta: "RAM in use" },
+        { key: "disk", column: "disk_used_pct", warn: 80, crit: 92, meta: "Root filesystem" },
+        { key: "temperature", column: "cpu_temp_c", warn: 75, crit: 90, meta: "Hottest sensor" },
+        { key: "gpu", column: "gpu_util_pct", warn: 90, crit: 101, meta: "Graphics load" },
+        { key: "load", column: "load1", warn: Infinity, crit: Infinity, meta: "1-minute average" }
+    ];
 
-    const toast = document.createElement("div");
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
+    cards.forEach((card) => {
+        const values = series(data, card.column);
+        const value = lastValue(values);
+        const empty = value === null;
 
-    container.appendChild(toast);
+        $(`${card.key}Value`).textContent = empty
+            ? (card.key === "gpu" || card.key === "temperature" ? "n/a" : "--")
+            : fmt(value, card.key === "load" ? 2 : 1);
 
-    setTimeout(() => toast.remove(), 3500);
-}
+        const dot = $(`${card.key}Level`);
+        if (dot) dot.className = `level-dot ${levelFor(value, card.warn, card.crit)}`;
 
+        $(`${card.key}Meta`).textContent = empty
+            ? (card.key === "gpu" ? "No GPU detected" :
+                card.key === "temperature" ? "No sensor available" : "No data")
+            : (card.key === "gpu" && system?.gpu?.name ? system.gpu.name : card.meta);
 
-// --------------------------------------------------
-// CONNECTION STATUS
-// --------------------------------------------------
-
-function updateConnection(isOnline) {
-    state.online = isOnline;
-
-    const pill = $("connectionPill");
-    const dot = pill?.querySelector(".status-indicator");
-
-    if (dot) {
-        dot.classList.toggle("online", isOnline);
-        dot.classList.toggle("offline", !isOnline);
-    }
-
-    setText("connectionText", isOnline ? "Connected" : "Offline");
-    setText("sidebarStatus", isOnline ? "Connected" : "Disconnected");
-    setText(
-        "sidebarSubstatus",
-        isOnline ? "Backend responding" : "Waiting for backend"
-    );
-
-    const sidebarDot = $("sidebarDot");
-    const collectorDot = $("collectorDot");
-
-    [sidebarDot, collectorDot].forEach((element) => {
-        if (!element) return;
-        element.classList.toggle("online", isOnline);
-        element.classList.toggle("offline", !isOnline);
+        sparkline(`${card.key}Spark`, values);
     });
 }
 
 
 // --------------------------------------------------
-// RESOURCE METRICS
+// ACTIVITY BARS
 // --------------------------------------------------
 
-function updateMetrics(data) {
-    if (!data) return;
-
-    const cpu = numericValue(findValue(data, [
-        "cpu_percent", "cpu_usage", "cpu", "cpu_pct"
-    ]));
-
-    const memory = numericValue(findValue(data, [
-        "memory_percent", "memory_usage", "ram_percent",
-        "ram_usage", "memory", "mem_percent"
-    ]));
-
-    const disk = numericValue(findValue(data, [
-        "disk_percent", "disk_usage", "disk", "storage_percent"
-    ]));
-
-    const temperature = numericValue(findValue(data, [
-        "cpu_temperature", "cpu_temp", "temperature", "temp_c"
-    ]));
-
-    setText("cpuValue", formatMetric(cpu));
-    setText("memoryValue", formatMetric(memory));
-    setText("diskValue", formatMetric(disk));
-    setText("temperatureValue", formatMetric(temperature));
-
-    setProgress("cpuBar", cpu);
-    setProgress("memoryBar", memory);
-    setProgress("diskBar", disk);
-
-    // Temperature progress uses a 100°C reference scale.
-    setProgress(
-        "temperatureBar",
-        temperature === null ? null : temperature
-    );
-
-    setText("cpuMeta", cpu === null ? "Unavailable" : "Current reading");
-    setText("memoryMeta", memory === null ? "Unavailable" : "Current reading");
-    setText("diskMeta", disk === null ? "Unavailable" : "Current reading");
-    setText(
-        "temperatureMeta",
-        temperature === null ? "Unavailable" : "Current reading"
-    );
-
-    setText("lastUpdated", `Last updated ${new Date().toLocaleTimeString()}`);
-}
-
-
-// --------------------------------------------------
-// SYSTEM INFORMATION
-// --------------------------------------------------
-
-function updateSystemInfo(system, status) {
-    const combined = {
-        ...(system || {}),
-        ...(status || {})
-    };
-
-    const os = findValue(combined, [
-        "os", "operating_system", "platform", "system"
-    ]);
-
-    const hostname = findValue(combined, [
-        "hostname", "host_name", "node_name"
-    ]);
-
-    const cores = findValue(combined, [
-        "cpu_cores", "cores", "logical_cpus", "cpu_count"
-    ]);
-
-    const sample = findValue(combined, [
-        "last_sample", "last_sample_time", "timestamp", "sample_time"
-    ]);
-
-    setText("healthOS", os ?? "Unavailable");
-    setText("healthCores", cores ?? "—");
-    setText("healthSample", sample ?? "—");
-
-    setText("healthCollector", "Check status");
-    setText("collectorStatus", "Status unavailable");
-
-    setText("osInfo", os ?? "Unavailable");
-    setText("hostnameInfo", hostname ?? "Unavailable");
-    setText("coresInfo", cores ?? "—");
-    setText("sampleInfo", sample ?? "—");
-}
-
-
-// --------------------------------------------------
-// COLLECTOR STATUS
-// --------------------------------------------------
-
-function updateCollectorStatus(status) {
-    if (!status) return;
-
-    const running = findValue(status, [
-        "collector_running", "running", "collector_active", "is_running"
-    ]);
-
-    const isRunning =
-        running === true ||
-        running === 1 ||
-        running === "true";
-
-    const label = isRunning ? "Running" : "Stopped";
-
-    setText("collectorStatus", label);
-    setText("healthCollector", label);
-
-    const dot = $("collectorDot");
-    if (dot) {
-        dot.classList.toggle("online", isRunning);
-        dot.classList.toggle("offline", !isRunning);
+function bucketize(values, labelsEpoch, count) {
+    if (values.length <= count) {
+        return values.map((v, i) => ({ value: v, epoch: labelsEpoch[i] }));
     }
 
-    const health = $("healthStatus");
+    const size = values.length / count;
+    const out = [];
 
-    if (health) {
-        health.innerHTML = `
-            <span class="health-status-dot"
-                  style="background:${isRunning ? "#22c983" : "#e7a03c"}">
-            </span>
-            <div>
-                <strong>${isRunning ? "Monitoring active" : "Collector stopped"}</strong>
-                <small>${isRunning ? "Collector is running" : "Start the collector to monitor"}</small>
-            </div>
-        `;
-    }
-}
+    for (let i = 0; i < count; i++) {
+        const start = Math.floor(i * size);
+        const end = Math.max(start + 1, Math.floor((i + 1) * size));
+        const slice = values.slice(start, end).filter((v) => v !== null);
 
-
-// --------------------------------------------------
-// ALERTS
-// --------------------------------------------------
-
-function normalizeArray(data, keys) {
-    if (Array.isArray(data)) return data;
-
-    for (const key of keys) {
-        if (Array.isArray(data?.[key])) return data[key];
+        out.push({
+            value: slice.length ? slice.reduce((a, b) => a + b, 0) / slice.length : null,
+            epoch: labelsEpoch[start]
+        });
     }
 
-    return [];
+    return out;
 }
 
-function updateAlerts(data) {
-    const alerts = normalizeArray(data, ["alerts", "items", "results"]);
-    state.alerts = alerts;
-
-    const tbody = $("recentAlerts");
-    if (!tbody) return;
-
-    const activeAlerts = alerts.filter(alert =>
-        !alert.acknowledged && !alert.ack
-    );
-
-    setText("alertBadge", activeAlerts.length);
-
-    const newIds = new Set(
-        alerts.map((alert, index) =>
-            String(alert.id ?? alert.alert_id ?? index)
-        )
-    );
-
-    for (const id of newIds) {
-        if (previousAlertIds.size && !previousAlertIds.has(id)) {
-            showToast("A new system alert has been received.", "info");
-        }
-    }
-
-    previousAlertIds = newIds;
-
-    if (!alerts.length) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="3" class="empty-cell">No alerts recorded</td>
-            </tr>`;
-        return;
-    }
-
-    tbody.innerHTML = alerts.slice(0, 5).map(alert => {
-        const title = alert.message ?? alert.title ?? alert.name ?? "System alert";
-        const severity = String(alert.severity ?? alert.level ?? "info").toLowerCase();
-        const time = alert.timestamp ?? alert.time ?? alert.created_at ?? "—";
-
-        const safeTitle = escapeHTML(title);
-        const safeTime = escapeHTML(time);
-        const safeSeverity = ["critical", "warning", "info"].includes(severity)
-            ? severity
-            : "info";
-
-        return `
-            <tr>
-                <td>${safeTitle}</td>
-                <td><span class="severity ${safeSeverity}">${safeSeverity.toUpperCase()}</span></td>
-                <td>${safeTime}</td>
-            </tr>`;
-    }).join("");
+function timeLabel(epoch, range) {
+    const date = new Date(epoch * 1000);
+    return range === "7d"
+        ? date.toLocaleDateString([], { weekday: "short", day: "numeric" })
+        : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
-
-
-// --------------------------------------------------
-// PROCESSES
-// --------------------------------------------------
-
-function updateProcesses(data) {
-    const processes = normalizeArray(data, [
-        "processes", "items", "results", "top_processes"
-    ]);
-
-    state.processes = processes;
-
-    const tbody = $("topProcesses");
-    if (!tbody) return;
-
-    if (!processes.length) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="3" class="empty-cell">No process data available</td>
-            </tr>`;
-        return;
-    }
-
-    tbody.innerHTML = processes.slice(0, 5).map(process => {
-        const name = process.name ?? process.process_name ?? process.command ?? "Unknown";
-        const cpu = process.cpu_percent ?? process.cpu ?? process.cpu_usage;
-        const memory = process.memory_percent ?? process.memory ?? process.mem_percent;
-
-        return `
-            <tr>
-                <td>${escapeHTML(name)}</td>
-                <td>${formatMetric(cpu)}%</td>
-                <td>${formatMetric(memory)}%</td>
-            </tr>`;
-    }).join("");
-}
-
-
-// --------------------------------------------------
-// SAFE HTML OUTPUT
-// --------------------------------------------------
-
-function escapeHTML(value) {
-    return String(value).replace(/[&<>"']/g, character => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#039;"
-    })[character]);
-}
-
-
-// --------------------------------------------------
-// PERFORMANCE CHART
-// --------------------------------------------------
 
 function updateChart(data) {
     const chart = $("performanceChart");
-    const labelsElement = $("chartLabels");
+    const labelsEl = $("chartLabels");
+    const range = $("dashboardRange").value;
+    const name = { cpu_pct: "CPU", mem_used_pct: "Memory", disk_used_pct: "Disk" }[activeMetric];
 
-    if (!chart || !labelsElement) return;
+    const values = series(data, activeMetric);
+    const epochs = series(data, "epoch");
 
-    const points = normalizeArray(data, [
-        "metrics", "samples", "data", "history", "items"
-    ]);
-
-    if (!points.length) {
-        chart.innerHTML = '<div class="chart-empty">No performance history available</div>';
-        labelsElement.innerHTML = "<span>No data</span>";
+    if (!values.some((v) => v !== null)) {
+        chart.innerHTML = '<div class="empty-block">No performance history yet. Start the collector to record data.</div>';
+        chart.setAttribute("aria-label", `${name} activity: no data`);
+        labelsEl.innerHTML = "";
         return;
     }
 
-    const cpuValues = points.map(point =>
-        numericValue(findValue(point, ["cpu_percent", "cpu_usage", "cpu"]))
-    );
+    const buckets = bucketize(values, epochs, 24);
+    const valid = values.filter((v) => v !== null);
+    const average = valid.reduce((a, b) => a + b, 0) / valid.length;
 
-    const memoryValues = points.map(point =>
-        numericValue(findValue(point, ["memory_percent", "memory_usage", "memory"]))
-    );
+    chart.innerHTML = buckets.map((b) => {
+        if (b.value === null) return '<div class="bar"></div>';
+        const level = b.value >= 90 ? "crit" : b.value >= 75 ? "warn" : "";
+        const height = Math.max(3, Math.min(100, b.value));
+        return `<div class="bar ${level}" title="${escapeHTML(timeLabel(b.epoch, range))}: ${b.value.toFixed(1)}%">` +
+            `<i style="height:${height}%"></i></div>`;
+    }).join("");
 
-    const diskValues = points.map(point =>
-        numericValue(findValue(point, ["disk_percent", "disk_usage", "disk"]))
-    );
+    chart.setAttribute("aria-label",
+        `${name} usage over the ${RANGE_NAMES[range]}, average ${average.toFixed(1)} percent`);
 
-    const validValues = [...cpuValues, ...memoryValues, ...diskValues]
-        .filter(value => value !== null);
+    const picks = 6;
+    labelsEl.innerHTML = Array.from({ length: Math.min(picks, buckets.length) }, (_, i) => {
+        const at = Math.round(i * (buckets.length - 1) / Math.max(1, Math.min(picks, buckets.length) - 1));
+        return `<span>${escapeHTML(timeLabel(buckets[at].epoch, range))}</span>`;
+    }).join("");
+}
 
-    if (!validValues.length) {
-        chart.innerHTML = '<div class="chart-empty">Metric fields not found in API response</div>';
-        labelsElement.innerHTML = "<span>Unavailable</span>";
-        return;
+$("metricSwitch").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-metric]");
+    if (!button) return;
+
+    activeMetric = button.dataset.metric;
+    document.querySelectorAll("#metricSwitch button").forEach((b) =>
+        b.classList.toggle("active", b === button));
+
+    if (metricsData) updateChart(metricsData);
+});
+
+
+// --------------------------------------------------
+// TOP PROCESSES (from /api/stats)
+// --------------------------------------------------
+
+function processRows(list) {
+    if (!list.length) {
+        return '<li class="empty-state"><strong>No process data yet</strong>Run the analysis to see the busiest processes.</li>';
     }
 
-    const width = 600;
-    const height = 164;
+    const scale = Math.max(100, ...list.map((p) => num(p.avg_cpu) ?? 0));
 
-    function makePath(values) {
-        const usable = values
-            .map((value, index) => ({ value, index }))
-            .filter(item => item.value !== null);
+    return list.map((p) => {
+        const name = p.command ?? p.name ?? "unknown";
+        const cpu = num(p.avg_cpu) ?? 0;
+        const mem = num(p.avg_mem);
+        const tone = cpu >= 50 ? "hot" : cpu >= 20 ? "mid" : "";
 
-        if (usable.length < 2) return "";
+        return `
+            <li class="rank-row">
+                <span class="rank-tile" aria-hidden="true">${escapeHTML(String(name).charAt(0))}</span>
+                <div>
+                    <span class="rank-name">${escapeHTML(name)}</span>
+                    <div class="rank-track"><i class="${tone}" style="width:${Math.max(2, cpu / scale * 100)}%"></i></div>
+                </div>
+                <span class="rank-value"><strong>${cpu.toFixed(1)}%</strong> CPU${mem === null ? "" : `<br>${mem.toFixed(1)}% mem`}</span>
+            </li>`;
+    }).join("");
+}
 
-        return usable.map((item, index) => {
-            const x = item.index / Math.max(1, points.length - 1) * width;
-            const y = height - (Math.max(0, Math.min(100, item.value)) / 100 * height);
-
-            return `${index === 0 ? "M" : "L"} ${x} ${y}`;
-        }).join(" ");
-    }
-
-    const cpuPath = makePath(cpuValues);
-    const memoryPath = makePath(memoryValues);
-    const diskPath = makePath(diskValues);
-
-    chart.innerHTML = `
-        <svg class="chart-svg" viewBox="0 0 ${width} ${height}"
-             preserveAspectRatio="none"
-             role="img" aria-label="System resource usage chart">
-            <defs>
-                <linearGradient id="cpuGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#5c83ff" stop-opacity=".18"/>
-                    <stop offset="100%" stop-color="#5c83ff" stop-opacity="0"/>
-                </linearGradient>
-            </defs>
-
-            ${cpuPath ? `<path d="${cpuPath} L ${width} ${height} L 0 ${height} Z" fill="url(#cpuGradient)"/>` : ""}
-            ${cpuPath ? `<path d="${cpuPath}" fill="none" stroke="#5c83ff" stroke-width="2.5" vector-effect="non-scaling-stroke"/>` : ""}
-            ${memoryPath ? `<path d="${memoryPath}" fill="none" stroke="#32cda2" stroke-width="2.5" vector-effect="non-scaling-stroke"/>` : ""}
-            ${diskPath ? `<path d="${diskPath}" fill="none" stroke="#f4b24a" stroke-width="2.5" vector-effect="non-scaling-stroke"/>` : ""}
-        </svg>
-    `;
-
-    const labelCount = Math.min(6, points.length);
-    const labels = [];
-
-    for (let i = 0; i < labelCount; i++) {
-        const index = Math.round(
-            i * (points.length - 1) / Math.max(1, labelCount - 1)
-        );
-
-        const label = points[index].timestamp ??
-            points[index].time ??
-            points[index].date ??
-            `Sample ${index + 1}`;
-
-        labels.push(label);
-    }
-
-    labelsElement.innerHTML = labels
-        .map(label => `<span>${escapeHTML(label)}</span>`)
-        .join("");
+function updateProcesses(stats) {
+    const list = Array.isArray(stats?.top_processes) ? stats.top_processes.slice(0, 5) : [];
+    $("topProcesses").innerHTML = processRows(list);
 }
 
 
 // --------------------------------------------------
-// LOAD DASHBOARD DATA
+// RECENT ALERTS (fed by common.js)
+// --------------------------------------------------
+
+document.addEventListener("sysmon:alerts", (event) => {
+    const alerts = event.detail;
+    const tbody = $("recentAlerts");
+
+    if (!alerts.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="empty-cell">No alerts recorded</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = alerts.slice(0, 5).map((a) => {
+        const severity = a.severity === "critical" ? "critical" : a.severity === "warning" ? "warning" : "info";
+        const resolved = a.state === "resolved";
+
+        return `
+            <tr>
+                <td><span class="cell-title">${escapeHTML(ruleLabel(a.rule))}</span>
+                    <span class="cell-sub">${escapeHTML(alertSummary(a))}${resolved ? " · resolved" : ""}</span></td>
+                <td><span class="badge ${resolved ? "ok" : severity}">${resolved ? "Resolved" : severity.charAt(0).toUpperCase() + severity.slice(1)}</span></td>
+                <td title="${escapeHTML(fullTime(a.epoch))}">${escapeHTML(relativeTime(a.epoch))}</td>
+            </tr>`;
+    }).join("");
+});
+
+
+// --------------------------------------------------
+// HEALTH + COLLECTOR
+// --------------------------------------------------
+
+function updateHealth(status, system) {
+    const collector = status?.collector || {};
+    const pipeline = status?.pipeline || {};
+    const running = collector.running === true;
+
+    const sampleAge = collector.last_sample_epoch
+        ? Date.now() / 1000 - collector.last_sample_epoch : null;
+    const stale = running && sampleAge !== null && sampleAge > 90;
+
+    $("collectorStatus").textContent = running ? "Running" : "Stopped";
+    $("healthCollector").textContent = running ? `Running (PID ${collector.pid ?? "?"})` : "Stopped";
+    $("healthSample").textContent = collector.last_sample_epoch ? relativeTime(collector.last_sample_epoch) : "No samples yet";
+
+    const dot = $("collectorDot");
+    dot.classList.toggle("online", running);
+    dot.classList.toggle("offline", !running);
+
+    const tone = !running ? "#f5a524" : stale ? "#f5a524" : "#22c55e";
+    const title = !running ? "Collector stopped" : stale ? "No fresh samples" : "Monitoring active";
+    const hint = !running ? "Start the collector to record data"
+        : stale ? "The collector is running but has not written a sample recently"
+            : "Collecting samples normally";
+
+    $("healthStatus").innerHTML = `
+        <span class="health-status-dot" style="background:${tone};box-shadow:0 0 0 5px ${tone}26"></span>
+        <div><strong>${title}</strong><small>${hint}</small></div>`;
+
+    if (pipeline.last_run_epoch) {
+        $("healthPipeline").textContent = pipeline.ok === false
+            ? `Failed at ${pipeline.failed_stage ?? "a stage"}`
+            : `OK · ${relativeTime(pipeline.last_run_epoch)}`;
+    } else {
+        $("healthPipeline").textContent = "Not run yet";
+    }
+
+    const sys = system || {};
+    $("healthHost").textContent = sys.hostname || "—";
+    $("healthCores").textContent = sys.cpu_model
+        ? `${sys.cpu_model}${sys.cpu_cores ? ` · ${sys.cpu_cores} cores` : ""}`
+        : (sys.cpu_cores ? `${sys.cpu_cores} cores` : "—");
+    $("healthOS").textContent = sys.kernel ? `Linux ${sys.kernel}` : "—";
+}
+
+
+// --------------------------------------------------
+// LOAD
 // --------------------------------------------------
 
 async function loadDashboard() {
-    try {
-        const [status, system, alerts, metrics] = await Promise.all([
-            apiRequest("/api/status"),
-            apiRequest("/api/system"),
-            apiRequest("/api/alerts"),
-            apiRequest(`/api/metrics?range=${$("dashboardRange")?.value || "24h"}`)
-        ]);
+    const range = $("dashboardRange").value;
 
-        state.status = status;
-        state.system = system;
-        state.metrics = metrics;
+    const results = await Promise.allSettled([
+        apiRequest("/api/status"),
+        apiRequest("/api/system"),
+        apiRequest(`/api/metrics?range=${range}`),
+        apiRequest("/api/stats")
+    ]);
 
-        updateConnection(true);
-        updateCollectorStatus(status);
-        updateSystemInfo(system, status);
-        updateMetrics(system);
-        updateAlerts(alerts);
+    const [status, system, metrics, stats] = results.map((r) => r.status === "fulfilled" ? r.value : null);
+
+    if (results.every((r) => r.status === "rejected")) {
+        setConnection(false);
+        $("lastUpdated").textContent = "Backend unavailable";
+        $("collectorStatus").textContent = "Unknown";
+        $("healthStatus").innerHTML = `
+            <span class="health-status-dot" style="background:#f0476b;box-shadow:0 0 0 5px #f0476b26"></span>
+            <div><strong>Backend unavailable</strong><small>Start the Flask server, then refresh</small></div>`;
+        $("performanceChart").innerHTML = '<div class="empty-block">Connect the backend to see activity.</div>';
+        $("chartLabels").innerHTML = "";
+        console.error("Dashboard refresh failed:", results[0].reason);
+        return;
+    }
+
+    setConnection(true);
+    $("lastUpdated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+
+    if (status) updateHealth(status, system);
+
+    if (metrics) {
+        metricsData = metrics;
+        updateCards(metrics, system);
         updateChart(metrics);
-
-        // Process data is not assumed to be part of /api/system.
-        // Add a dedicated process endpoint when the backend contract provides one.
-
-    } catch (error) {
-        updateConnection(false);
-        setText("lastUpdated", "Backend unavailable");
-        showBackendUnavailable();
-        console.error("Dashboard refresh failed:", error);
     }
-}
 
-function showBackendUnavailable() {
-    setText("collectorStatus", "Backend unavailable");
-    setText("healthCollector", "Unavailable");
-    setText("healthSample", "—");
-    setText("healthCores", "—");
-    setText("healthOS", "—");
+    if (stats) updateProcesses(stats);
 
-    setText("cpuValue", "--");
-    setText("memoryValue", "--");
-    setText("diskValue", "--");
-    setText("temperatureValue", "--");
-
-    ["cpuBar", "memoryBar", "diskBar", "temperatureBar"]
-        .forEach(id => setProgress(id, null));
-
-    $("performanceChart").innerHTML =
-        '<div class="chart-empty">Connect the backend to display performance data</div>';
+    refreshAlerts();
 }
 
 
 // --------------------------------------------------
-// API ACTIONS
+// ACTIONS
 // --------------------------------------------------
 
-async function performAction(path, method = "POST", body = {}) {
-    try {
-        await apiRequest(path, {
-            method,
-            body: JSON.stringify(body)
-        });
-
-        showToast("Action completed successfully.", "success");
-        await loadDashboard();
-
-    } catch (error) {
-        console.error(error);
-        showToast("Action failed. Check the backend connection.", "error");
-    }
+async function runAction(button, path, success) {
+    await withBusy(button, async () => {
+        if (button.dataset.busyLabel) button.textContent = button.dataset.busyLabel;
+        try {
+            await post(path);
+            showToast(success, "success");
+            await loadDashboard();
+        } catch (error) {
+            console.error(error);
+            showToast(error.message || "Action failed. Check the backend connection.", "error");
+        }
+    });
 }
 
-$("startCollector").addEventListener("click", () =>
-    performAction("/api/collector/start")
-);
-
-$("stopCollector").addEventListener("click", () =>
-    performAction("/api/collector/stop")
-);
-
-$("runPipeline").addEventListener("click", () =>
-    performAction("/api/pipeline/run")
-);
-
-$("sendTestAlert").addEventListener("click", () =>
-    performAction("/api/alerts/test")
-);
-
-$("refreshAnalysis").addEventListener("click", () =>
-    performAction("/api/pipeline/run")
-);
+[
+    ["startCollector", "/api/collector/start", "Collector started.", null],
+    ["stopCollector", "/api/collector/stop", "Collector stopped.", null],
+    ["sendTestAlert", "/api/alerts/test", "Test alert sent.", null],
+    ["refreshAnalysis", "/api/pipeline/run", "Analysis finished.", "Running…"]
+].forEach(([id, path, message, busy]) => {
+    const button = $(id);
+    if (busy) button.dataset.busyLabel = busy;
+    button.addEventListener("click", () => runAction(button, path, message));
+});
 
 $("headerRefresh").addEventListener("click", loadDashboard);
-
-
-// --------------------------------------------------
-// FILTERS AND AUTO REFRESH
-// --------------------------------------------------
-
 $("dashboardRange").addEventListener("change", loadDashboard);
 
-$("chartRange").addEventListener("change", async () => {
-    try {
-        const data = await apiRequest(
-            `/api/metrics?range=${$("chartRange").value}`
-        );
-        updateChart(data);
-    } catch (error) {
-        showToast("Unable to load chart data.", "error");
-    }
-});
+
+// --------------------------------------------------
+// AUTO REFRESH + INIT
+// --------------------------------------------------
 
 function configureAutoRefresh() {
     clearInterval(refreshTimer);
-
-    refreshSeconds = Number($("refreshInterval").value) || 10;
-
-    refreshTimer = setInterval(loadDashboard, refreshSeconds * 1000);
+    const seconds = Number($("refreshInterval").value) || 10;
+    refreshTimer = setInterval(loadDashboard, seconds * 1000);
 }
 
 $("refreshInterval").addEventListener("change", configureAutoRefresh);
 
-
-// --------------------------------------------------
-// INITIALIZATION
-// --------------------------------------------------
-
-document.addEventListener("DOMContentLoaded", () => {
-    loadDashboard();
-    configureAutoRefresh();
-});
+loadDashboard();
+configureAutoRefresh();
