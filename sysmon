@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+# SysMon Launcher (P1: Integrator)
+# One-command startup on a fresh clone.
+# Sets up virtual environment, installs requirements, creates default
+# directories and configs, initializes defaults, starts server, and opens browser.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$SCRIPT_DIR"
+
+DATA_DIR="$ROOT_DIR/data"
+CONFIG_DIR="$ROOT_DIR/config"
+REQ_FILE="$ROOT_DIR/requirements.txt"
+SERVER_SCRIPT="$ROOT_DIR/src/server.py"
+SYSMON_CONF="$CONFIG_DIR/sysmon.conf"
+THRESHOLDS_CONF="$CONFIG_DIR/thresholds.conf"
+
+NO_BROWSER=false
+INIT_ONLY=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --no-browser)
+            NO_BROWSER=true
+            ;;
+        --init-defaults)
+            INIT_ONLY=true
+            ;;
+        --help|-h)
+            echo "Usage: ./sysmon [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --no-browser     Start server without opening the browser"
+            echo "  --init-defaults  Initialize default directories/configs and exit"
+            echo "  --help, -h       Show this help message"
+            exit 0
+            ;;
+        *)
+            ;;
+    esac
+done
+
+echo "==============================================="
+echo "   SysMon - Unix System Monitoring Dashboard   "
+echo "==============================================="
+
+# 1. Ensure required directory layout exists
+mkdir -p "$DATA_DIR/raw" "$DATA_DIR/clean" "$CONFIG_DIR"
+
+# 2. Virtual environment setup
+VENV_DIR="$ROOT_DIR/.venv"
+if [ ! -d "$VENV_DIR" ]; then
+    echo "==> Creating Python virtual environment in .venv..."
+    python3 -m venv "$VENV_DIR"
+fi
+
+if [ -x "$VENV_DIR/bin/python3" ]; then
+    PYTHON_BIN="$VENV_DIR/bin/python3"
+    PIP_BIN="$VENV_DIR/bin/pip"
+else
+    PYTHON_BIN="python3"
+    PIP_BIN="pip3"
+fi
+
+# 3. Ensure required packages are installed
+if [ -f "$REQ_FILE" ]; then
+    if ! "$PYTHON_BIN" -c "import flask, numpy, pytest" >/dev/null 2>&1; then
+        echo "==> Installing dependencies from requirements.txt..."
+        "$PIP_BIN" install -q -r "$REQ_FILE"
+    else
+        echo "==> Dependencies verified."
+    fi
+fi
+
+# 4. Initialize default sysmon.conf if missing
+if [ ! -f "$SYSMON_CONF" ]; then
+    echo "==> Creating default config/sysmon.conf..."
+    cat <<EOF > "$SYSMON_CONF"
+[sysmon]
+interval_s = 5
+data_dir = data
+top_n = 5
+pipeline_interval_s = 10
+port = 5000
+simulate_temp = false
+collect_gpu = true
+gpu_poll_every = 3
+EOF
+fi
+
+# 5. First-run thresholds initialization (--init-defaults)
+if [ ! -f "$THRESHOLDS_CONF" ]; then
+    if [ -f "$ROOT_DIR/src/alerts.py" ]; then
+        echo "==> Initializing thresholds via alerts engine..."
+        "$PYTHON_BIN" "$ROOT_DIR/src/alerts.py" --init-defaults >/dev/null 2>&1 || true
+    fi
+    # If alerts.py did not create thresholds.conf, write default configuration
+    if [ ! -f "$THRESHOLDS_CONF" ]; then
+        echo "==> Writing baseline config/thresholds.conf..."
+        cat <<EOF > "$THRESHOLDS_CONF"
+[cpu_high]
+metric = cpu_pct
+op = >
+threshold = 85
+sustained = 3
+cooldown_s = 600
+severity = warning
+enabled = true
+
+[mem_high]
+metric = mem_used_pct
+op = >
+threshold = 90
+sustained = 3
+cooldown_s = 600
+severity = warning
+enabled = true
+
+[swap_high]
+metric = swap_used_pct
+op = >
+threshold = 50
+sustained = 3
+cooldown_s = 600
+severity = warning
+enabled = true
+
+[disk_high]
+metric = disk_used_pct
+op = >
+threshold = 90
+sustained = 1
+cooldown_s = 600
+severity = warning
+enabled = true
+
+[disk_critical]
+metric = disk_used_pct
+op = >
+threshold = 95
+sustained = 1
+cooldown_s = 600
+severity = critical
+enabled = true
+
+[load_high]
+metric = load1
+op = >
+threshold = 8.0
+sustained = 3
+cooldown_s = 600
+severity = warning
+enabled = true
+
+[cpu_temp_warning]
+metric = cpu_temp_c
+op = >
+threshold = 80
+sustained = 2
+cooldown_s = 600
+severity = warning
+enabled = true
+
+[cpu_temp_critical]
+metric = cpu_temp_c
+op = >
+threshold = 90
+sustained = 2
+cooldown_s = 600
+severity = critical
+enabled = true
+
+[gpu_temp_warning]
+metric = gpu_temp_c
+op = >
+threshold = 80
+sustained = 2
+cooldown_s = 600
+severity = warning
+enabled = true
+
+[gpu_temp_critical]
+metric = gpu_temp_c
+op = >
+threshold = 90
+sustained = 2
+cooldown_s = 600
+severity = critical
+enabled = true
+
+[no_data]
+max_age_s = 60
+severity = critical
+enabled = true
+EOF
+    fi
+fi
+
+if [ "$INIT_ONLY" = true ]; then
+    echo "==> Initialization complete (--init-defaults)."
+    exit 0
+fi
+
+# Read port from sysmon.conf if present
+PORT=5000
+if [ -f "$SYSMON_CONF" ]; then
+    CONF_PORT=$(grep -E "^port\s*=" "$SYSMON_CONF" | head -n1 | cut -d'=' -f2 | tr -d ' ' || true)
+    if [ -n "$CONF_PORT" ]; then
+        PORT="$CONF_PORT"
+    fi
+fi
+
+SERVER_URL="http://127.0.0.1:$PORT"
+
+echo "==> Starting SysMon web server at $SERVER_URL ..."
+
+# Start browser opener in background
+if [ "$NO_BROWSER" = false ]; then
+    (
+        # Wait up to 10 seconds for server to respond
+        for _ in $(seq 1 20); do
+            sleep 0.5
+            if command -v curl >/dev/null 2>&1; then
+                if curl -s -f "$SERVER_URL/api/status" >/dev/null 2>&1; then
+                    break
+                fi
+            fi
+        done
+
+        if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+            if command -v xdg-open >/dev/null 2>&1; then
+                xdg-open "$SERVER_URL" >/dev/null 2>&1 || true
+            elif command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+                "$PYTHON_BIN" -m webbrowser "$SERVER_URL" >/dev/null 2>&1 || true
+            fi
+        fi
+    ) &
+fi
+
+SERVER_PID=""
+cleanup() {
+    echo ""
+    echo "==> Stopping SysMon..."
+    if [ -n "$SERVER_PID" ]; then
+        kill -TERM "$SERVER_PID" 2>/dev/null || true
+        wait "$SERVER_PID" 2>/dev/null || true
+    fi
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
+"$PYTHON_BIN" "$SERVER_SCRIPT" &
+SERVER_PID=$!
+
+echo "==> SysMon is running (PID: $SERVER_PID). Press Ctrl+C to stop."
+wait "$SERVER_PID"
