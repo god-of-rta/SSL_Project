@@ -164,15 +164,14 @@ function collect() {
 $("saveSettings").addEventListener("click", async () => {
     clearErrors();
 
-    // A new rule needs a name before the server can store it.
-    const unnamed = document.querySelector('tr[data-new] [data-part="name"]:not(:placeholder-shown)') === null
-        ? document.querySelector('tr[data-new] [data-part="name"]') : null;
+    // Every newly added rule needs a name before the server can store it.
+    const unnamed = [...document.querySelectorAll('tr[data-new] [data-part="name"]')]
+        .find((input) => input.value.trim() === "");
 
-    if (unnamed && unnamed.value.trim() === "") {
-        unnamed.classList.add("invalid");
-        unnamed.focus();
+    if (unnamed) {
         showError(Object.assign(new Error("Give the new rule a name, for example cpu_very_high."), {}));
         unnamed.classList.add("invalid");
+        unnamed.focus();
         return;
     }
 

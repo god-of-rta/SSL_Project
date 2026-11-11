@@ -4,8 +4,8 @@
  * connection status and the alert badge.
  */
 
-// Change this if your Flask backend uses another port.
-const API_BASE = "http://127.0.0.1:5000";
+// Use same-origin relative URLs when served by Flask; fall back for file:// previews.
+const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:5000" : "";
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,7 +30,17 @@ async function apiRequest(path, options = {}) {
         throw error;
     }
 
-    return response.status === 204 ? null : response.json();
+    if (response.status === 204) return null;
+
+    const data = await response.json();
+    if (data && data.ok === false) {
+        const error = new Error(data.error || "API request failed");
+        error.field = data.field;
+        error.status = response.status;
+        throw error;
+    }
+
+    return data;
 }
 
 const post = (path, body = {}) =>
