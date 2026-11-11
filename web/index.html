@@ -6,6 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#e9eaee">
     <title>SysMon | Dashboard</title>
+    <script>
+        /* apply the saved (or system) theme before first paint */
+        try {
+            document.documentElement.dataset.theme = localStorage.getItem("sysmon-theme") ||
+                (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        } catch (e) { document.documentElement.dataset.theme = "light"; }
+    </script>
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -59,45 +66,59 @@
                 </div>
             </section>
 
-            <!-- STATS + ACTIVITY -->
+            <!-- GAUGES -->
+            <section class="dial-grid" aria-label="Key metrics">
+                <article class="stat-card dial-card" data-dial="cpu">
+                    <div class="stat-head"><span>CPU usage</span><i class="level-dot" id="cpuLevel"></i></div>
+                    <div class="dial">
+                        <svg class="dial-svg" viewBox="0 0 230 230" aria-hidden="true"></svg>
+                        <div class="dial-center">
+                            <div class="stat-value"><strong id="cpuValue">--</strong><span class="stat-unit">%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-meta" id="cpuMeta">No data</div>
+                </article>
+                <article class="stat-card dial-card" data-dial="memory">
+                    <div class="stat-head"><span>Memory</span><i class="level-dot" id="memoryLevel"></i></div>
+                    <div class="dial">
+                        <svg class="dial-svg" viewBox="0 0 230 230" aria-hidden="true"></svg>
+                        <div class="dial-center">
+                            <div class="stat-value"><strong id="memoryValue">--</strong><span class="stat-unit">%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-meta" id="memoryMeta">No data</div>
+                </article>
+                <article class="stat-card dial-card" data-dial="disk">
+                    <div class="stat-head"><span>Disk</span><i class="level-dot" id="diskLevel"></i></div>
+                    <div class="dial">
+                        <svg class="dial-svg" viewBox="0 0 230 230" aria-hidden="true"></svg>
+                        <div class="dial-center">
+                            <div class="stat-value"><strong id="diskValue">--</strong><span class="stat-unit">%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-meta" id="diskMeta">No data</div>
+                </article>
+                <article class="stat-card dial-card" data-dial="temperature">
+                    <div class="stat-head"><span>CPU temperature</span><i class="level-dot" id="temperatureLevel"></i>
+                    </div>
+                    <div class="dial">
+                        <svg class="dial-svg" viewBox="0 0 230 230" aria-hidden="true"></svg>
+                        <div class="dial-center">
+                            <div class="stat-value"><strong id="temperatureValue">--</strong><span
+                                    class="stat-unit">°C</span></div>
+                        </div>
+                    </div>
+                    <div class="stat-meta" id="temperatureMeta">No data</div>
+                </article>
+            </section>
+
+            <!-- COMPACT STATS + ACTIVITY -->
             <section class="dash-top">
 
                 <div class="stat-grid">
-                    <article class="stat-card">
-                        <div class="stat-head"><span>CPU usage</span><i class="level-dot" id="cpuLevel"></i></div>
-                        <div class="stat-value"><strong id="cpuValue">--</strong><span class="stat-unit">%</span></div>
-                        <svg class="spark" id="cpuSpark" viewBox="0 0 120 34" preserveAspectRatio="none"
-                            aria-hidden="true"></svg>
-                        <div class="stat-meta" id="cpuMeta">No data</div>
-                    </article>
-
-                    <article class="stat-card">
-                        <div class="stat-head"><span>Memory</span><i class="level-dot" id="memoryLevel"></i></div>
-                        <div class="stat-value"><strong id="memoryValue">--</strong><span class="stat-unit">%</span>
-                        </div>
-                        <svg class="spark" id="memorySpark" viewBox="0 0 120 34" preserveAspectRatio="none"
-                            aria-hidden="true"></svg>
-                        <div class="stat-meta" id="memoryMeta">No data</div>
-                    </article>
-
-                    <article class="stat-card">
-                        <div class="stat-head"><span>Disk</span><i class="level-dot" id="diskLevel"></i></div>
-                        <div class="stat-value"><strong id="diskValue">--</strong><span class="stat-unit">%</span></div>
-                        <svg class="spark" id="diskSpark" viewBox="0 0 120 34" preserveAspectRatio="none"
-                            aria-hidden="true"></svg>
-                        <div class="stat-meta" id="diskMeta">No data</div>
-                    </article>
-
-                    <article class="stat-card">
-                        <div class="stat-head"><span>CPU temperature</span><i class="level-dot"
-                                id="temperatureLevel"></i></div>
-                        <div class="stat-value"><strong id="temperatureValue">--</strong><span
-                                class="stat-unit">°C</span></div>
-                        <svg class="spark" id="temperatureSpark" viewBox="0 0 120 34" preserveAspectRatio="none"
-                            aria-hidden="true"></svg>
-                        <div class="stat-meta" id="temperatureMeta">No data</div>
-                    </article>
-
                     <article class="stat-card">
                         <div class="stat-head"><span>GPU usage</span><i class="level-dot" id="gpuLevel"></i></div>
                         <div class="stat-value"><strong id="gpuValue">n/a</strong><span class="stat-unit">%</span></div>

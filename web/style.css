@@ -2127,3 +2127,881 @@ thead th {
         box-shadow: none;
     }
 }
+
+
+/* ==================================================================
+   Floating-nav layout layer
+   Top pill navigation + dark floating icon rail + radial dials.
+   The old sidebar rules above are inert: #sidebar now only hosts the
+   new header and rail, and is laid out with display: contents.
+=================================================================== */
+:root {
+    --r-panel: 22px;
+    --r-stat: 20px;
+    --r-ctl: 12px;
+    --rail-ink: #0f1115;
+}
+
+body {
+    background: #e8e9ec;
+}
+
+.shell {
+    display: block;
+    max-width: 1560px;
+    min-height: 100vh;
+    margin: 0 auto;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+}
+
+.sidebar {
+    display: contents;
+}
+
+.workspace {
+    background: none;
+    padding: 10px 32px 44px 104px;
+}
+
+/* ---------- top navigation ---------- */
+.topnav {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 32px 12px;
+    background: rgba(232, 233, 236, .86);
+    backdrop-filter: blur(14px);
+}
+
+.topnav-brand {
+    justify-self: start;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+}
+
+.topnav-name {
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -.03em;
+}
+
+.pillnav {
+    display: flex;
+    gap: 2px;
+    padding: 5px;
+    background: #fff;
+    border-radius: 999px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0 0 1px rgba(16, 24, 40, .03);
+}
+
+.pill-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 18px;
+    border-radius: 999px;
+    color: #4a5164;
+    font-size: 13.5px;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background .15s, color .15s;
+}
+
+.pill-link:hover {
+    background: #f1f2f6;
+    color: var(--ink);
+}
+
+.pill-link.active {
+    background: var(--rail-ink);
+    color: #fff;
+}
+
+.pill-link .nav-count {
+    position: static;
+    margin: 0;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: 11px;
+    box-shadow: none;
+}
+
+.topnav-status {
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    height: 40px;
+    padding: 0 16px;
+    border-radius: 999px;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0 0 1px rgba(16, 24, 40, .03);
+}
+
+.topnav-status small {
+    display: none;
+}
+
+/* ---------- floating dark rail ---------- */
+.rail {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    z-index: 45;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 8px;
+    border-radius: 28px;
+    background: var(--rail-ink);
+    box-shadow: 0 14px 34px rgba(15, 17, 21, .3);
+}
+
+.rail-btn {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #9aa1b1;
+    transition: background .15s, color .15s, transform .1s;
+}
+
+.rail-btn:hover,
+.rail-btn:focus-visible {
+    background: rgba(255, 255, 255, .12);
+    color: #fff;
+}
+
+.rail-btn:active:not(:disabled) {
+    transform: scale(.92);
+}
+
+.rail-btn.active {
+    background: #fff;
+    color: var(--rail-ink);
+}
+
+.rail-btn:disabled {
+    cursor: progress;
+}
+
+.rail-btn[aria-busy="true"] {
+    animation: blink .9s ease-in-out infinite;
+}
+
+.rail-sep {
+    width: 22px;
+    height: 1px;
+    margin: 4px 0;
+    background: rgba(255, 255, 255, .16);
+}
+
+.rail-btn::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: calc(100% + 14px);
+    top: 50%;
+    transform: translate(-4px, -50%);
+    padding: 6px 11px;
+    border-radius: 8px;
+    background: var(--rail-ink);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .15s, transform .15s;
+}
+
+.rail-btn:hover::after,
+.rail-btn:focus-visible::after {
+    opacity: 1;
+    transform: translate(0, -50%);
+}
+
+/* ---------- softer cards, like the reference ---------- */
+.panel,
+.stat-card {
+    border: 0;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+}
+
+.stat-card::before {
+    display: none;
+}
+
+.stat-head {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink-2);
+}
+
+.topbar {
+    border-bottom: 0;
+    padding-bottom: 8px;
+    margin-bottom: 18px;
+}
+
+.toast-container {
+    top: 84px;
+}
+
+/* ---------- radial dials ---------- */
+.dial-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.dial-card {
+    padding: 20px 20px 18px;
+}
+
+.dial {
+    position: relative;
+    width: 100%;
+    max-width: 236px;
+    aspect-ratio: 1;
+    margin: 6px auto 2px;
+}
+
+.dial-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.dial-svg line {
+    stroke: #e3e6ee;
+    stroke-width: 3.2;
+    stroke-linecap: round;
+    transition: stroke .3s;
+}
+
+.dial-card {
+    --dial: var(--blue);
+}
+
+.dial-card[data-level="warn"] {
+    --dial: var(--amber);
+}
+
+.dial-card[data-level="crit"] {
+    --dial: var(--red);
+}
+
+.dial-svg line.on {
+    stroke: var(--dial);
+}
+
+.dial-center {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+}
+
+.dial-center .stat-value {
+    margin: 0;
+    justify-content: center;
+}
+
+.dial-center .stat-value strong {
+    font-size: 42px;
+}
+
+.dial-card .stat-meta {
+    text-align: center;
+    padding-top: 2px;
+}
+
+/* compact GPU / load cards beside the activity chart */
+.dash-top {
+    grid-template-columns: 300px minmax(0, 1fr);
+}
+
+.dash-top .stat-grid {
+    grid-template-columns: 1fr;
+    align-content: stretch;
+}
+
+@media (max-width: 1100px) {
+    .dial-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dash-top {
+        grid-template-columns: 1fr;
+    }
+
+    .dash-top .stat-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1000px) {
+    .workspace {
+        padding: 10px 20px 44px 84px;
+    }
+
+    .topnav {
+        padding: 14px 20px 10px;
+    }
+}
+
+/* ---------- phones: rail moves to a floating bottom bar ---------- */
+@media (max-width: 720px) {
+    .workspace {
+        padding: 8px 14px calc(96px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .topnav {
+        grid-template-columns: 1fr auto;
+        padding: 12px 14px 8px;
+        gap: 10px;
+    }
+
+    .pillnav {
+        grid-column: 1 / -1;
+        order: 3;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .pillnav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .pill-link {
+        padding: 0 8px;
+        font-size: 12.5px;
+        gap: 5px;
+        flex: 1;
+        justify-content: center;
+    }
+
+    .rail {
+        top: auto;
+        left: 50%;
+        bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+        transform: translateX(-50%);
+        flex-direction: row;
+        padding: 8px 12px;
+        border-radius: 999px;
+    }
+
+    .rail-sep {
+        width: 1px;
+        height: 22px;
+        margin: 0 4px;
+    }
+
+    .rail-btn::after {
+        display: none;
+    }
+
+    .toast-container {
+        top: 116px;
+    }
+
+    .dial-center .stat-value strong {
+        font-size: 34px;
+    }
+
+    .dash-top .stat-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 380px) {
+    .dial-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+/* ==================================================================
+   Liquid glass + light / dark themes
+   Frosted translucent surfaces over a soft colour scene. Everything
+   is driven by the variables below; <html data-theme="light|dark">
+   is set before first paint and toggled from the rail.
+=================================================================== */
+:root {
+    color-scheme: light;
+
+    --scene-base: #e8ebf4;
+    --scene-a: rgba(91, 140, 255, .50);
+    --scene-b: rgba(176, 120, 255, .38);
+    --scene-c: rgba(56, 208, 200, .38);
+    --scene-d: rgba(255, 140, 170, .34);
+
+    --glass-bg: rgba(255, 255, 255, .56);
+    --glass-border: rgba(255, 255, 255, .78);
+    --glass-hi: rgba(255, 255, 255, .95);
+    --glass-lo: rgba(255, 255, 255, .25);
+    --glass-shadow: 0 10px 34px rgba(40, 55, 110, .12), 0 1px 2px rgba(40, 55, 110, .06);
+    --glass-blur: blur(26px) saturate(180%);
+    --sheen: linear-gradient(135deg, rgba(255, 255, 255, .55) 0%, rgba(255, 255, 255, 0) 42%);
+
+    --topnav-bg: rgba(232, 235, 244, .55);
+    --field-bg: rgba(255, 255, 255, .62);
+    --line-soft: rgba(16, 24, 40, .07);
+    --hover: rgba(47, 102, 240, .06);
+    --bar-track: rgba(47, 102, 240, .09);
+    --dial-off: rgba(16, 24, 40, .1);
+    --neutral-bg: rgba(16, 24, 40, .07);
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%233b4250' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+
+    --pill-active-bg: #0f1115;
+    --pill-active-ink: #fff;
+    --pill-ink: #4a5164;
+    --rail-bg: rgba(18, 22, 34, .66);
+    --rail-border: rgba(255, 255, 255, .22);
+    --rail-ink: #0f1115;
+    --bar-bg: rgba(15, 20, 32, .8);
+
+    --chart-tick: #667085;
+    --chart-grid: rgba(16, 24, 40, .07);
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --canvas: #090c14;
+    --card: rgba(255, 255, 255, .08);
+    --ink: #eef1f8;
+    --ink-2: #c3cadb;
+    --muted: #98a3ba;
+    --faint: #6b7591;
+    --line: rgba(255, 255, 255, .12);
+
+    --blue: #6f9bff;
+    --blue-deep: #b3c9ff;
+    --blue-soft: rgba(111, 155, 255, .18);
+    --track: rgba(255, 255, 255, .07);
+    --green-soft: rgba(52, 211, 125, .16);
+    --amber-soft: rgba(245, 165, 36, .17);
+    --red-soft: rgba(240, 71, 107, .2);
+
+    --scene-base: #090c14;
+    --scene-a: rgba(59, 110, 255, .34);
+    --scene-b: rgba(139, 92, 246, .30);
+    --scene-c: rgba(20, 184, 166, .20);
+    --scene-d: rgba(236, 72, 153, .17);
+
+    --glass-bg: rgba(30, 36, 54, .46);
+    --glass-border: rgba(255, 255, 255, .13);
+    --glass-hi: rgba(255, 255, 255, .22);
+    --glass-lo: rgba(255, 255, 255, .05);
+    --glass-shadow: 0 14px 40px rgba(0, 0, 0, .42), 0 1px 2px rgba(0, 0, 0, .3);
+    --sheen: linear-gradient(135deg, rgba(255, 255, 255, .10) 0%, rgba(255, 255, 255, 0) 40%);
+
+    --topnav-bg: rgba(9, 12, 20, .5);
+    --field-bg: rgba(255, 255, 255, .06);
+    --line-soft: rgba(255, 255, 255, .08);
+    --hover: rgba(255, 255, 255, .05);
+    --bar-track: rgba(255, 255, 255, .07);
+    --dial-off: rgba(255, 255, 255, .12);
+    --neutral-bg: rgba(255, 255, 255, .1);
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23c3cadb' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+
+    --pill-active-bg: rgba(255, 255, 255, .92);
+    --pill-active-ink: #0f1218;
+    --pill-ink: #b4bdd0;
+    --rail-bg: rgba(255, 255, 255, .09);
+    --rail-border: rgba(255, 255, 255, .16);
+    --rail-ink: #0f1218;
+    --bar-bg: rgba(30, 36, 54, .78);
+
+    --chart-tick: #98a3ba;
+    --chart-grid: rgba(255, 255, 255, .08);
+}
+
+/* ---------- colour scene behind the glass ---------- */
+body {
+    background: var(--scene-base);
+    color: var(--ink);
+    transition: background-color .35s;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: -12%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        radial-gradient(42vmax 42vmax at 10% 6%, var(--scene-a), transparent 62%),
+        radial-gradient(40vmax 40vmax at 90% 10%, var(--scene-b), transparent 62%),
+        radial-gradient(46vmax 46vmax at 80% 94%, var(--scene-c), transparent 62%),
+        radial-gradient(38vmax 38vmax at 6% 88%, var(--scene-d), transparent 62%);
+    animation: scene-drift 36s ease-in-out infinite alternate;
+}
+
+@keyframes scene-drift {
+    from {
+        transform: translate3d(0, 0, 0) scale(1);
+    }
+
+    to {
+        transform: translate3d(2.5%, -2%, 0) scale(1.08);
+    }
+}
+
+/* ---------- glass surfaces ---------- */
+.panel,
+.stat-card,
+.pillnav,
+.topnav-status,
+.pill,
+.rail,
+.savebar,
+.toast {
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+}
+
+.panel,
+.stat-card,
+.pillnav,
+.topnav-status,
+.pill {
+    background: var(--sheen), var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow:
+        inset 0 1px 0 var(--glass-hi),
+        inset 0 -1px 0 var(--glass-lo),
+        var(--glass-shadow);
+}
+
+.pill:not(:has(select)) {
+    background: var(--sheen), var(--glass-bg);
+    box-shadow:
+        inset 0 1px 0 var(--glass-hi),
+        inset 0 -1px 0 var(--glass-lo);
+}
+
+.pill:has(select):hover {
+    border-color: var(--blue);
+}
+
+@media (hover: hover) {
+    .stat-card:hover {
+        box-shadow:
+            inset 0 1px 0 var(--glass-hi),
+            inset 0 -1px 0 var(--glass-lo),
+            0 18px 44px rgba(40, 55, 110, .2);
+    }
+}
+
+.topnav {
+    background: var(--topnav-bg);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+}
+
+/* rail, save bar and toasts are dark glass in both themes */
+.rail {
+    background: var(--rail-bg);
+    border: 1px solid var(--rail-border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 16px 40px rgba(0, 0, 0, .28);
+}
+
+.rail-btn {
+    color: #c6cddd;
+}
+
+.rail-btn.active {
+    background: rgba(255, 255, 255, .92);
+    color: var(--rail-ink);
+}
+
+.rail-sep {
+    background: rgba(255, 255, 255, .22);
+}
+
+.rail-btn::after {
+    background: rgba(15, 20, 32, .92);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+}
+
+.savebar,
+.toast {
+    background: var(--bar-bg);
+    border: 1px solid rgba(255, 255, 255, .14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 18px 40px rgba(0, 0, 0, .3);
+}
+
+/* theme toggle shows the icon of the theme you will switch to */
+.theme-btn .i-sun {
+    display: none;
+}
+
+:root[data-theme="dark"] .theme-btn .i-sun {
+    display: grid;
+}
+
+:root[data-theme="dark"] .theme-btn .i-moon {
+    display: none;
+}
+
+.theme-btn span {
+    display: grid;
+    place-items: center;
+}
+
+/* ---------- navigation ---------- */
+.pill-link {
+    color: var(--pill-ink);
+}
+
+.pill-link:hover {
+    background: var(--hover);
+    color: var(--ink);
+}
+
+.pill-link.active {
+    background: var(--pill-active-bg);
+    color: var(--pill-active-ink);
+}
+
+/* ---------- text + dividers ---------- */
+.panel-heading {
+    border-bottom-color: var(--line-soft);
+}
+
+.health-actions {
+    border-top-color: var(--line-soft);
+}
+
+thead th {
+    color: var(--muted);
+}
+
+tbody td {
+    border-bottom-color: var(--line-soft);
+}
+
+tbody tr:hover {
+    background: var(--hover);
+}
+
+.table-wrap {
+    background: none;
+}
+
+#rulesBody tr[data-new] td {
+    background: var(--blue-soft);
+}
+
+/* ---------- controls ---------- */
+.btn-quiet {
+    background: var(--card);
+    border-color: var(--line);
+    color: var(--ink);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+}
+
+.btn-quiet:hover {
+    background: var(--hover);
+    border-color: var(--blue);
+}
+
+.btn-ghost:hover {
+    background: var(--blue-soft);
+}
+
+.btn-primary {
+    border: 1px solid rgba(255, 255, 255, .22);
+}
+
+.segmented {
+    background: var(--neutral-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+}
+
+.segmented button.active {
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .14), inset 0 1px 0 var(--glass-hi);
+}
+
+.input,
+.select {
+    background-color: var(--field-bg);
+    border-color: var(--line);
+    color: var(--ink);
+}
+
+.select {
+    background-image: var(--select-arrow);
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+}
+
+.rules-table .select {
+    background-position: right 10px center;
+}
+
+.input:hover,
+.select:hover {
+    border-color: var(--blue);
+}
+
+.input.invalid,
+.select.invalid {
+    background-color: var(--red-soft);
+}
+
+.switch .track {
+    background: rgba(120, 130, 160, .35);
+}
+
+.switch:hover .track {
+    background: rgba(120, 130, 160, .5);
+}
+
+/* ---------- data viz ---------- */
+.bar,
+.rank-track {
+    background: var(--bar-track);
+}
+
+.dial-svg line {
+    stroke: var(--dial-off);
+}
+
+.dial-svg line.on {
+    stroke: var(--dial);
+}
+
+.badge.neutral {
+    background: var(--neutral-bg);
+    color: var(--ink-2);
+}
+
+.alert-row:not(.is-resolved) .badge.neutral {
+    background: var(--pill-active-bg);
+    color: var(--pill-active-ink);
+}
+
+.empty-state::before {
+    background-color: var(--blue-soft);
+}
+
+.empty-block,
+.daily-summary-content {
+    background: var(--hover);
+}
+
+.notice {
+    background: var(--red-soft);
+    border-color: rgba(240, 71, 107, .35);
+}
+
+/* ---------- dark theme: readable status colours ---------- */
+:root[data-theme="dark"] .badge.critical,
+:root[data-theme="dark"] .notice {
+    color: #ff9db3;
+}
+
+:root[data-theme="dark"] .badge.warning {
+    color: #ffcb78;
+}
+
+:root[data-theme="dark"] .badge.ok {
+    color: #62e6a4;
+}
+
+:root[data-theme="dark"] .rank-row:nth-child(5n+1) .rank-tile {
+    background: rgba(111, 155, 255, .2);
+    color: #a9c2ff;
+}
+
+:root[data-theme="dark"] .rank-row:nth-child(5n+2) .rank-tile {
+    background: rgba(139, 108, 240, .22);
+    color: #c4b0ff;
+}
+
+:root[data-theme="dark"] .rank-row:nth-child(5n+3) .rank-tile {
+    background: rgba(20, 184, 166, .2);
+    color: #6fe3d6;
+}
+
+:root[data-theme="dark"] .rank-row:nth-child(5n+4) .rank-tile {
+    background: rgba(236, 72, 153, .2);
+    color: #ff9fd0;
+}
+
+:root[data-theme="dark"] .rank-row:nth-child(5n+5) .rank-tile {
+    background: rgba(245, 158, 11, .2);
+    color: #ffc46b;
+}
+
+:root[data-theme="dark"] .brand-mark {
+    box-shadow: 0 6px 18px rgba(59, 110, 255, .5);
+}
+
+:root[data-theme="dark"] .btn-danger {
+    color: #ff9db3;
+}
+
+/* keep content legible when the browser lacks backdrop-filter */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    :root {
+        --glass-bg: rgba(255, 255, 255, .9);
+    }
+
+    :root[data-theme="dark"] {
+        --glass-bg: rgba(28, 33, 48, .92);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body::before {
+        animation: none;
+    }
+}
+
+@media (max-width: 720px) {
+    .pillnav {
+        padding: 4px;
+        gap: 0;
+    }
+
+    .pill-link {
+        padding: 0 6px;
+        font-size: 12px;
+        gap: 4px;
+    }
+}

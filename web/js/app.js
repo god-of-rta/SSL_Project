@@ -58,6 +58,59 @@ function sparkline(id, values) {
 
 
 // --------------------------------------------------
+// RADIAL DIALS (tick gauge, swept on load and on every update)
+// --------------------------------------------------
+
+const DIAL_TICKS = 56;
+const dialState = {};
+
+function buildDial(card) {
+    const svg = card.querySelector(".dial-svg");
+    const size = 230, R = size / 2, r1 = R - 8, r0 = R - 30;
+    const lines = [];
+
+    for (let i = 0; i < DIAL_TICKS; i++) {
+        // 300-degree sweep, the gap sits at the bottom
+        const a = (-240 + (i / (DIAL_TICKS - 1)) * 300) * (Math.PI / 180);
+        const x1 = R + Math.cos(a) * r0, y1 = R + Math.sin(a) * r0;
+        const x2 = R + Math.cos(a) * r1, y2 = R + Math.sin(a) * r1;
+        lines.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>`);
+    }
+
+    svg.innerHTML = lines.join("");
+    return { lines: [...svg.querySelectorAll("line")], shown: 0, raf: 0 };
+}
+
+function setDial(key, value, level, max = 100) {
+    const card = document.querySelector(`[data-dial="${key}"]`);
+    if (!card) return;
+
+    const state = dialState[key] || (dialState[key] = buildDial(card));
+    card.dataset.level = level || "";
+
+    const target = value === null ? 0 : Math.max(0, Math.min(1, value / max)) * DIAL_TICKS;
+    const paint = (v) => state.lines.forEach((l, i) => l.classList.toggle("on", i < Math.round(v)));
+
+    cancelAnimationFrame(state.raf);
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        state.shown = target;
+        paint(target);
+        return;
+    }
+
+    const from = state.shown, began = performance.now(), duration = 1200;
+    const step = (now) => {
+        const t = Math.min(1, (now - began) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        state.shown = from + (target - from) * eased;
+        paint(state.shown);
+        if (t < 1) state.raf = requestAnimationFrame(step);
+    };
+    state.raf = requestAnimationFrame(step);
+}
+
+// --------------------------------------------------
 // STAT CARDS
 // --------------------------------------------------
 
@@ -82,6 +135,7 @@ function updateCards(data, system) {
 
         const dot = $(`${card.key}Level`);
         if (dot) dot.className = `level-dot ${levelFor(value, card.warn, card.crit)}`;
+        setDial(card.key, value, levelFor(value, card.warn, card.crit), card.key === "temperature" ? 110 : 100);
 
         $(`${card.key}Meta`).textContent = empty
             ? (card.key === "gpu" ? "No GPU detected" :

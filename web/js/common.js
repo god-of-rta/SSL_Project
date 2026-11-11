@@ -124,27 +124,30 @@ const ICONS = {
     check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
-    bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'
+    bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+    stop: '<rect x="6" y="6" width="12" height="12" rx="2.5"/>',
+    moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'
 };
 
 function icon(name, size = 20) {
     return `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 }
 
-const NAV = [
-    {
-        caption: "Monitor", items: [
-            { page: "dashboard", href: "index.html", label: "Dashboard", icon: "dashboard" },
-            { page: "trends", href: "trends.html", label: "Trends", icon: "trends" },
-            { page: "processes", href: "processes.html", label: "Processes", icon: "processes" },
-            { page: "alerts", href: "alerts.html", label: "Alerts", icon: "alerts", badge: true }
-        ]
-    },
-    {
-        caption: "Manage", items: [
-            { page: "settings", href: "settings.html", label: "Settings", icon: "settings" }
-        ]
-    }
+const NAV_LINKS = [
+    { page: "dashboard", href: "index.html", label: "Dashboard" },
+    { page: "trends", href: "trends.html", label: "Trends" },
+    { page: "processes", href: "processes.html", label: "Processes" },
+    { page: "alerts", href: "alerts.html", label: "Alerts", badge: true },
+    { page: "settings", href: "settings.html", label: "Settings" }
+];
+
+// Quick actions available from every page (floating rail).
+const RAIL_ACTIONS = [
+    { icon: "bolt", label: "Run analysis", path: "/api/pipeline/run", ok: "Analysis finished." },
+    { icon: "play", label: "Start collector", path: "/api/collector/start", ok: "Collector started." },
+    { icon: "stop", label: "Stop collector", path: "/api/collector/stop", ok: "Collector stopped." },
+    { icon: "alerts", label: "Send test alert", path: "/api/alerts/test", ok: "Test alert sent." }
 ];
 
 function renderSidebar() {
@@ -153,35 +156,69 @@ function renderSidebar() {
 
     const current = document.body.dataset.page;
 
-    const groups = NAV.map((group) => `
-        <div class="nav-group">
-            <div class="nav-caption">${group.caption}</div>
-            <nav class="nav-menu" aria-label="${group.caption}">
-                ${group.items.map((item) => `
-                    <a href="${item.href}" class="nav-item${item.page === current ? " active" : ""}"
-                       ${item.page === current ? 'aria-current="page"' : ""} title="${item.label}">
-                        ${icon(item.icon)}
-                        <span>${item.label}</span>
-                        ${item.badge ? '<span class="nav-count" id="alertBadge" hidden>0</span>' : ""}
-                    </a>`).join("")}
-            </nav>
-        </div>`).join("");
+    const links = NAV_LINKS.map((item) => `
+        <a href="${item.href}" class="pill-link${item.page === current ? " active" : ""}"
+           ${item.page === current ? 'aria-current="page"' : ""}>
+            ${item.label}
+            ${item.badge ? '<span class="nav-count" id="alertBadge" hidden>0</span>' : ""}
+        </a>`).join("");
+
+    const actions = RAIL_ACTIONS.map((a) => `
+        <button type="button" class="rail-btn" data-path="${a.path}" data-ok="${a.ok}"
+                data-tip="${a.label}" aria-label="${a.label}">${icon(a.icon, 19)}</button>`).join("");
 
     mount.innerHTML = `
-        <a href="index.html" class="brand" aria-label="SysMon home">
-            <span class="brand-mark">${icon("pulse", 20)}</span>
-            <span class="brand-name">SysMon</span>
-        </a>
-        ${groups}
-        <div class="sidebar-spacer"></div>
-        <div class="sidebar-status">
-            <div class="row">
+        <header class="topnav">
+            <a href="index.html" class="topnav-brand" aria-label="SysMon home">
+                <span class="brand-mark">${icon("pulse", 20)}</span>
+                <span class="topnav-name">SysMon</span>
+            </a>
+            <nav class="pillnav" aria-label="Main">${links}</nav>
+            <div class="topnav-status" title="Backend connection">
                 <span class="status-indicator" id="sidebarDot"></span>
-                <span class="label" id="sidebarStatus">Disconnected</span>
+                <span id="sidebarStatus">Disconnected</span>
+                <small id="sidebarSubstatus">Waiting for backend</small>
             </div>
-            <small id="sidebarSubstatus">Waiting for backend</small>
-        </div>
-        <div class="sidebar-version">System Monitor v1.0</div>`;
+        </header>
+        <nav class="rail" aria-label="Quick actions">
+            ${actions}
+            <span class="rail-sep" aria-hidden="true"></span>
+            <button type="button" class="rail-btn theme-btn" id="themeToggle" data-tip="Switch theme"
+                    aria-label="Switch between light and dark theme">
+                <span class="i-moon">${icon("moon", 19)}</span><span class="i-sun">${icon("sun", 19)}</span>
+            </button>
+            <a href="settings.html" class="rail-btn${current === "settings" ? " active" : ""}"
+               data-tip="Settings" aria-label="Settings">${icon("settings", 19)}</a>
+        </nav>`;
+
+    $("themeToggle").addEventListener("click", () => {
+        const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        document.documentElement.dataset.theme = next;
+        try { localStorage.setItem("sysmon-theme", next); } catch (e) { /* storage unavailable */ }
+        // charts read their colours when drawn, so redraw them
+        if (typeof window.loadTrends === "function") window.loadTrends();
+    });
+
+    mount.querySelectorAll(".rail-btn[data-path]").forEach((button) => {
+        button.addEventListener("click", () => withBusy(button, async () => {
+            try {
+                await post(button.dataset.path);
+                showToast(button.dataset.ok, "success");
+                refreshAfterAction();
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || "Action failed. Check the backend connection.", "error");
+            }
+        }));
+    });
+}
+
+// Re-fetch whatever the current page shows after a quick action.
+function refreshAfterAction() {
+    refreshAlerts();
+    ["loadDashboard", "loadProcesses", "loadTrends"].forEach((name) => {
+        if (typeof window[name] === "function") window[name]();
+    });
 }
 
 

@@ -8,6 +8,12 @@ let networkChart = null;
 
 const getAPI = (path) => apiRequest(path);
 
+// Chart axis colours follow the active light/dark theme.
+function themeVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+}
+
 function getColumn(data, name) {
     return data.columns?.indexOf(name) ?? -1;
 }
@@ -134,7 +140,7 @@ function makeChart(canvasId, oldChart, labels, datasets, emptyId, options = {}) 
                     ticks: {
                         maxTicksLimit: 7,
                         maxRotation: 0,
-                        color: "#7d8497",
+                        color: themeVar("--chart-tick", "#7d8497"),
                         font: {
                             family: "Inter, sans-serif",
                             size: 12
@@ -148,13 +154,13 @@ function makeChart(canvasId, oldChart, labels, datasets, emptyId, options = {}) 
                     beginAtZero: true,
                     ...(options.max ? { max: options.max } : {}),
                     grid: {
-                        color: "#f0f1f5"
+                        color: themeVar("--chart-grid", "#f0f1f5")
                     },
                     border: {
                         display: false
                     },
                     ticks: {
-                        color: "#7d8497",
+                        color: themeVar("--chart-tick", "#7d8497"),
                         font: {
                             family: "Inter, sans-serif",
                             size: 12
