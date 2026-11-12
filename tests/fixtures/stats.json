@@ -1,0 +1,378 @@
+{
+  "generated_at": "2026-11-12T04:53:42Z",
+  "latest_epoch": 1793491795,
+  "windows": {
+    "1h": {
+      "cpu_pct": {
+        "mean": 34.66,
+        "min": 22.9,
+        "max": 97.8,
+        "p95": 42.5,
+        "std": 7.99
+      },
+      "mem_used_pct": {
+        "mean": 48.79,
+        "min": 47.6,
+        "max": 50.4,
+        "p95": 49.87,
+        "std": 0.64
+      },
+      "swap_used_pct": {
+        "mean": 2.08,
+        "min": 1.6,
+        "max": 2.6,
+        "p95": 2.4,
+        "std": 0.22
+      },
+      "disk_used_pct": {
+        "mean": 55.92,
+        "min": 55.9,
+        "max": 56.0,
+        "p95": 56.0,
+        "std": 0.04
+      },
+      "load1": {
+        "mean": 1.68,
+        "min": 0.98,
+        "max": 4.54,
+        "p95": 2.12,
+        "std": 0.42
+      },
+      "net_rx_kbps": {
+        "mean": 554.61,
+        "min": 0.0,
+        "max": 885.7,
+        "p95": 789.17,
+        "std": 124.83
+      },
+      "net_tx_kbps": {
+        "mean": 111.23,
+        "min": 0.0,
+        "max": 139.8,
+        "p95": 137.04,
+        "std": 20.71
+      },
+      "cpu_temp_c": {
+        "mean": 53.65,
+        "min": 48.6,
+        "max": 83.5,
+        "p95": 57.14,
+        "std": 3.76
+      },
+      "gpu_util_pct": {
+        "mean": 8.94,
+        "min": 6.0,
+        "max": 34.9,
+        "p95": 10.81,
+        "std": 4.21
+      },
+      "gpu_mem_used_pct": {
+        "mean": 13.65,
+        "min": 12.0,
+        "max": 15.0,
+        "p95": 14.9,
+        "std": 0.85
+      },
+      "gpu_temp_c": {
+        "mean": 43.67,
+        "min": 42.4,
+        "max": 48.7,
+        "p95": 44.66,
+        "std": 0.93
+      }
+    },
+    "24h": {
+      "cpu_pct": {
+        "mean": 34.66,
+        "min": 22.9,
+        "max": 97.8,
+        "p95": 42.5,
+        "std": 7.99
+      },
+      "mem_used_pct": {
+        "mean": 48.79,
+        "min": 47.6,
+        "max": 50.4,
+        "p95": 49.87,
+        "std": 0.64
+      },
+      "swap_used_pct": {
+        "mean": 2.08,
+        "min": 1.6,
+        "max": 2.6,
+        "p95": 2.4,
+        "std": 0.22
+      },
+      "disk_used_pct": {
+        "mean": 55.92,
+        "min": 55.9,
+        "max": 56.0,
+        "p95": 56.0,
+        "std": 0.04
+      },
+      "load1": {
+        "mean": 1.68,
+        "min": 0.98,
+        "max": 4.54,
+        "p95": 2.12,
+        "std": 0.42
+      },
+      "net_rx_kbps": {
+        "mean": 554.61,
+        "min": 0.0,
+        "max": 885.7,
+        "p95": 789.17,
+        "std": 124.83
+      },
+      "net_tx_kbps": {
+        "mean": 111.23,
+        "min": 0.0,
+        "max": 139.8,
+        "p95": 137.04,
+        "std": 20.71
+      },
+      "cpu_temp_c": {
+        "mean": 53.65,
+        "min": 48.6,
+        "max": 83.5,
+        "p95": 57.14,
+        "std": 3.76
+      },
+      "gpu_util_pct": {
+        "mean": 8.94,
+        "min": 6.0,
+        "max": 34.9,
+        "p95": 10.81,
+        "std": 4.21
+      },
+      "gpu_mem_used_pct": {
+        "mean": 13.65,
+        "min": 12.0,
+        "max": 15.0,
+        "p95": 14.9,
+        "std": 0.85
+      },
+      "gpu_temp_c": {
+        "mean": 43.67,
+        "min": 42.4,
+        "max": 48.7,
+        "p95": 44.66,
+        "std": 0.93
+      }
+    },
+    "7d": {
+      "cpu_pct": {
+        "mean": 34.66,
+        "min": 22.9,
+        "max": 97.8,
+        "p95": 42.5,
+        "std": 7.99
+      },
+      "mem_used_pct": {
+        "mean": 48.79,
+        "min": 47.6,
+        "max": 50.4,
+        "p95": 49.87,
+        "std": 0.64
+      },
+      "swap_used_pct": {
+        "mean": 2.08,
+        "min": 1.6,
+        "max": 2.6,
+        "p95": 2.4,
+        "std": 0.22
+      },
+      "disk_used_pct": {
+        "mean": 55.92,
+        "min": 55.9,
+        "max": 56.0,
+        "p95": 56.0,
+        "std": 0.04
+      },
+      "load1": {
+        "mean": 1.68,
+        "min": 0.98,
+        "max": 4.54,
+        "p95": 2.12,
+        "std": 0.42
+      },
+      "net_rx_kbps": {
+        "mean": 554.61,
+        "min": 0.0,
+        "max": 885.7,
+        "p95": 789.17,
+        "std": 124.83
+      },
+      "net_tx_kbps": {
+        "mean": 111.23,
+        "min": 0.0,
+        "max": 139.8,
+        "p95": 137.04,
+        "std": 20.71
+      },
+      "cpu_temp_c": {
+        "mean": 53.65,
+        "min": 48.6,
+        "max": 83.5,
+        "p95": 57.14,
+        "std": 3.76
+      },
+      "gpu_util_pct": {
+        "mean": 8.94,
+        "min": 6.0,
+        "max": 34.9,
+        "p95": 10.81,
+        "std": 4.21
+      },
+      "gpu_mem_used_pct": {
+        "mean": 13.65,
+        "min": 12.0,
+        "max": 15.0,
+        "p95": 14.9,
+        "std": 0.85
+      },
+      "gpu_temp_c": {
+        "mean": 43.67,
+        "min": 42.4,
+        "max": 48.7,
+        "p95": 44.66,
+        "std": 0.93
+      }
+    },
+    "all": {
+      "cpu_pct": {
+        "mean": 34.66,
+        "min": 22.9,
+        "max": 97.8,
+        "p95": 42.5,
+        "std": 7.99
+      },
+      "mem_used_pct": {
+        "mean": 48.79,
+        "min": 47.6,
+        "max": 50.4,
+        "p95": 49.87,
+        "std": 0.64
+      },
+      "swap_used_pct": {
+        "mean": 2.08,
+        "min": 1.6,
+        "max": 2.6,
+        "p95": 2.4,
+        "std": 0.22
+      },
+      "disk_used_pct": {
+        "mean": 55.92,
+        "min": 55.9,
+        "max": 56.0,
+        "p95": 56.0,
+        "std": 0.04
+      },
+      "load1": {
+        "mean": 1.68,
+        "min": 0.98,
+        "max": 4.54,
+        "p95": 2.12,
+        "std": 0.42
+      },
+      "net_rx_kbps": {
+        "mean": 554.61,
+        "min": 0.0,
+        "max": 885.7,
+        "p95": 789.17,
+        "std": 124.83
+      },
+      "net_tx_kbps": {
+        "mean": 111.23,
+        "min": 0.0,
+        "max": 139.8,
+        "p95": 137.04,
+        "std": 20.71
+      },
+      "cpu_temp_c": {
+        "mean": 53.65,
+        "min": 48.6,
+        "max": 83.5,
+        "p95": 57.14,
+        "std": 3.76
+      },
+      "gpu_util_pct": {
+        "mean": 8.94,
+        "min": 6.0,
+        "max": 34.9,
+        "p95": 10.81,
+        "std": 4.21
+      },
+      "gpu_mem_used_pct": {
+        "mean": 13.65,
+        "min": 12.0,
+        "max": 15.0,
+        "p95": 14.9,
+        "std": 0.85
+      },
+      "gpu_temp_c": {
+        "mean": 43.67,
+        "min": 42.4,
+        "max": 48.7,
+        "p95": 44.66,
+        "std": 0.93
+      }
+    }
+  },
+  "hourly": {
+    "cpu_pct": [
+      {
+        "hour": "2026-11-01T00:00:00Z",
+        "mean": 34.66
+      }
+    ]
+  },
+  "top_processes": [
+    {
+      "command": "chrome",
+      "avg_cpu": 12.53,
+      "avg_mem": 5.17
+    },
+    {
+      "command": "code",
+      "avg_cpu": 12.4,
+      "avg_mem": 4.52
+    },
+    {
+      "command": "Xorg",
+      "avg_cpu": 12.34,
+      "avg_mem": 4.24
+    },
+    {
+      "command": "firefox",
+      "avg_cpu": 11.44,
+      "avg_mem": 5.09
+    },
+    {
+      "command": "pipewire",
+      "avg_cpu": 10.96,
+      "avg_mem": 4.94
+    }
+  ],
+  "disk_forecast": {
+    "days_to_full": 56.5,
+    "slope_pct_per_day": 0.78
+  },
+  "anomalies": {
+    "cpu_pct": 1,
+    "mem_used_pct": 0,
+    "swap_used_pct": 0,
+    "disk_used_pct": 0,
+    "load1": 1,
+    "net_rx_kbps": 1,
+    "net_tx_kbps": 1,
+    "cpu_temp_c": 1,
+    "gpu_util_pct": 2,
+    "gpu_mem_used_pct": 0,
+    "gpu_temp_c": 2
+  },
+  "data_quality": {
+    "gaps": 1,
+    "filled": 3
+  }
+}

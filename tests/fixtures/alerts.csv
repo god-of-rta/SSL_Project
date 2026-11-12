@@ -1,0 +1,3 @@
+id,epoch,iso_time,rule,metric,value,threshold,severity,state,process,acknowledged
+1,1793491335,2026-11-01T00:02:15Z,cpu_high,cpu_pct,40.1,40,warning,firing,firefox,0
+2,1793491400,2026-11-01T00:03:20Z,cpu_high,cpu_pct,32.5,40,warning,resolved,Xorg,0
