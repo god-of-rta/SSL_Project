@@ -6,6 +6,11 @@
 
 set -u
 
+# Avoid spawning full-core OpenBLAS/OMP thread pools per short-lived Python subprocess
+export OPENBLAS_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
@@ -31,45 +36,70 @@ else
     PYTHON_BIN="python"
 fi
 
-START_EPOCH=$("$PYTHON_BIN" -c "import time; print(f'{time.time():.4f}')")
+START_INFO=$("$PYTHON_BIN" -c '
+import os, sys, time
+raw_dir = sys.argv[1]
+items = []
+if os.path.isdir(raw_dir):
+    for e in sorted(os.scandir(raw_dir), key=lambda x: x.name):
+        if e.is_file() and e.name.endswith(".csv") and (e.name.startswith("metrics_") or e.name.startswith("processes_")):
+            st = e.stat()
+            items.append(f"{e.name}:{st.st_size}:{st.st_mtime_ns}")
+print(f"{time.time():.4f}|" + ";".join(items))
+' "$RAW_DIR")
+START_EPOCH="${START_INFO%%|*}"
+RAW_SIG="${START_INFO#*|}"
 START_INT=${START_EPOCH%.*}
+STAMP_FILE="$DATA_DIR/.pipeline_raw_stamp"
+RAW_UNCHANGED=false
+if [ -f "$STAMP_FILE" ] && [ -f "$CLEAN_DIR/metrics.csv" ] && [ -f "$DATA_DIR/stats.json" ] && [ "$(cat "$STAMP_FILE" 2>/dev/null)" = "$RAW_SIG" ]; then
+    RAW_UNCHANGED=true
+fi
 
 echo "=== Pipeline run started at $(date -u +'%Y-%m-%dT%H:%M:%SZ') ===" >> "$LOG_FILE"
 
 FAILED_STAGE=""
 STAGE_OK=true
 
-# Stage 1: Cleaner
-if [ -f "$ROOT_DIR/src/cleaner.py" ]; then
-    echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Running cleaner..." >> "$LOG_FILE"
-    if ! "$PYTHON_BIN" "$ROOT_DIR/src/cleaner.py" \
-        --input-dir "$RAW_DIR" \
-        --output "$CLEAN_DIR/metrics.csv" \
-        --report "$CLEAN_DIR/cleaning_report.json" >> "$LOG_FILE" 2>&1; then
-        FAILED_STAGE="cleaner"
-        STAGE_OK=false
-        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Cleaner stage failed" >> "$LOG_FILE"
-    fi
+if [ "$RAW_UNCHANGED" = true ]; then
+    echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Raw inputs unchanged; skipping cleaner and analyzer" >> "$LOG_FILE"
 else
-    echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Cleaner stage skipped (src/cleaner.py not present)" >> "$LOG_FILE"
-fi
-
-# Stage 2: Analyzer
-if [ "$STAGE_OK" = true ]; then
-    if [ -f "$ROOT_DIR/src/analyzer.py" ]; then
-        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Running analyzer..." >> "$LOG_FILE"
-        if ! "$PYTHON_BIN" "$ROOT_DIR/src/analyzer.py" \
-            --input "$CLEAN_DIR/metrics.csv" \
-            --processes-dir "$RAW_DIR" \
-            --output "$DATA_DIR/stats.json" >> "$LOG_FILE" 2>&1; then
-            FAILED_STAGE="analyzer"
+    # Stage 1: Cleaner
+    if [ -f "$ROOT_DIR/src/cleaner.py" ]; then
+        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Running cleaner..." >> "$LOG_FILE"
+        if ! "$PYTHON_BIN" "$ROOT_DIR/src/cleaner.py" \
+            --input-dir "$RAW_DIR" \
+            --output "$CLEAN_DIR/metrics.csv" \
+            --report "$CLEAN_DIR/cleaning_report.json" >> "$LOG_FILE" 2>&1; then
+            FAILED_STAGE="cleaner"
             STAGE_OK=false
-            echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Analyzer stage failed" >> "$LOG_FILE"
+            echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Cleaner stage failed" >> "$LOG_FILE"
         fi
     else
-        FAILED_STAGE="analyzer"
-        STAGE_OK=false
-        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Analyzer stage missing (src/analyzer.py not found)" >> "$LOG_FILE"
+        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Cleaner stage skipped (src/cleaner.py not present)" >> "$LOG_FILE"
+    fi
+
+    # Stage 2: Analyzer
+    if [ "$STAGE_OK" = true ]; then
+        if [ -f "$ROOT_DIR/src/analyzer.py" ]; then
+            echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Running analyzer..." >> "$LOG_FILE"
+            if ! "$PYTHON_BIN" "$ROOT_DIR/src/analyzer.py" \
+                --input "$CLEAN_DIR/metrics.csv" \
+                --processes-dir "$RAW_DIR" \
+                --output "$DATA_DIR/stats.json" >> "$LOG_FILE" 2>&1; then
+                FAILED_STAGE="analyzer"
+                STAGE_OK=false
+                echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Analyzer stage failed" >> "$LOG_FILE"
+            fi
+        else
+            FAILED_STAGE="analyzer"
+            STAGE_OK=false
+            echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Analyzer stage missing (src/analyzer.py not found)" >> "$LOG_FILE"
+        fi
+    fi
+
+    if [ "$STAGE_OK" = true ]; then
+        printf "%s" "$RAW_SIG" > "$STAMP_FILE"
     fi
 fi
 

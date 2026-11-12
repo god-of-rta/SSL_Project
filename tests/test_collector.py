@@ -99,3 +99,90 @@ def test_collector_lifecycle():
         assert len(rows) >= 1, "At least one processes row should be written"
         for row in rows:
             assert len(row) == 6, f"Expected 6 columns in process row, got {len(row)}: {row}"
+
+
+def test_collect_top_processes_filters_transient_and_spaces(tmp_path):
+    """Ensure collect_top_processes ignores ps/newborn spikes and handles spaces in comm."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_ps = fake_bin / "ps"
+    fake_ps.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ \"$*\" == *\"-eo\"* ]]; then\n"
+        "  printf '  999 400.0  0.1     0 ps\\n'\n"
+        "  printf '  888 3925.0 0.5     1 python3\\n'\n"
+        "  printf '  777  42.5  3.2    65 mt76-tx phy0\\n'\n"
+        "  printf '  666  12.0  1.4   120 UVM global queu\\n'\n"
+        "  printf '  555   5.5  0.8   200 brave\\n'\n"
+        "else\n"
+        "  exit 1\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    fake_ps.chmod(0o755)
+
+    proc_dir = tmp_path / "raw"
+    proc_dir.mkdir()
+    script = (
+        f"export PATH='{fake_bin}':\"$PATH\"\n"
+        f"source '{os.path.join(BIN_DIR, 'collector.sh')}'\n"
+        f"RAW_DIR='{proc_dir}'\n"
+        "TOP_N=5\n"
+        "collect_top_processes 1700000000 20261112\n"
+    )
+    res = subprocess.run(
+        ["bash", "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, f"collector helper failed: {res.stderr}"
+
+    proc_csv = proc_dir / "processes_20261112.csv"
+    assert proc_csv.is_file()
+    with open(proc_csv, "r", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+
+    assert rows[0] == ["epoch", "pid", "command", "cpu_pct", "mem_pct", "rank"]
+    data_rows = rows[1:]
+    assert len(data_rows) == 3
+    assert data_rows[0] == ["1700000000", "777", "mt76-tx_phy0", "42.5", "3.2", "1"]
+    assert data_rows[1] == ["1700000000", "666", "UVM_global_queu", "12.0", "1.4", "2"]
+    assert data_rows[2] == ["1700000000", "555", "brave", "5.5", "0.8", "3"]
+
+
+def test_nvidia_suspended_skips_smi(tmp_path):
+    """Ensure poll_gpu_metrics does not invoke nvidia-smi when PCI runtime_status is suspended."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    marker = tmp_path / "nvidia_smi_called"
+    fake_smi = fake_bin / "nvidia-smi"
+    fake_smi.write_text(
+        f"#!/usr/bin/env bash\n"
+        f"touch '{marker}'\n"
+        "echo '50, 1000, 8000, 60'\n",
+        encoding="utf-8",
+    )
+    fake_smi.chmod(0o755)
+
+    status_file = tmp_path / "runtime_status"
+    status_file.write_text("suspended\n", encoding="utf-8")
+
+    script = (
+        f"export PATH='{fake_bin}':\"$PATH\"\n"
+        f"source '{os.path.join(BIN_DIR, 'collector.sh')}'\n"
+        "COLLECT_GPU=true\n"
+        "GPU_VENDOR=nvidia\n"
+        f"GPU_PCI_STATUS_FILE='{status_file}'\n"
+        "poll_gpu_metrics\n"
+    )
+    res = subprocess.run(
+        ["bash", "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0
+    assert res.stdout == ",,"
+    assert not marker.exists(), "nvidia-smi should not be called while GPU is suspended"
+

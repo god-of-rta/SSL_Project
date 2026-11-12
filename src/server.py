@@ -9,6 +9,11 @@ import threading
 import time
 import tempfile
 import configparser
+
+# Limit BLAS/OMP threads before importing pandas/numpy so multi-core CPUs don't spin thread pools
+for _env_var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_env_var, "1")
+
 import pandas as pd
 import numpy as np
 import glob

@@ -17,11 +17,6 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    import numpy as np
-except ImportError:
-    np = None
-
 METRIC_COLUMNS = [
     "cpu_pct",
     "mem_used_pct",
@@ -55,8 +50,6 @@ def calculate_percentile(values: List[float], percentile: float) -> float:
     """Calculate percentile for a list of floats (0 to 100)."""
     if not values:
         return 0.0
-    if np is not None:
-        return float(np.percentile(values, percentile))
     sorted_vals = sorted(values)
     k = (len(sorted_vals) - 1) * (percentile / 100.0)
     f = math.floor(k)

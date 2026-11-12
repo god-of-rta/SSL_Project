@@ -82,33 +82,38 @@ PID_FILE="$DATA_PATH/collector.pid"
 LOG_FILE="$DATA_PATH/collector.log"
 SYSINFO_FILE="$DATA_PATH/system_info.json"
 
-mkdir -p "$RAW_DIR"
-
 log_msg() {
     printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$*" >> "$LOG_FILE"
 }
 
-# Acquire exclusive lock (flock on Linux, PID-lock fallback on Git Bash/MSYS2)
-if command -v flock >/dev/null 2>&1; then
-    exec 9>"$LOCK_FILE"
-    if ! flock -n 9; then
-        log_msg "ERROR: Another collector instance holds $LOCK_FILE. Exiting."
-        echo "Collector is already running (lock held)." >&2
-        exit 2
-    fi
-else
-    if [[ -f "$LOCK_FILE" ]]; then
-        EXISTING_PID="$(tr -d '\r\n ' < "$LOCK_FILE" 2>/dev/null || true)"
-        if [[ "$EXISTING_PID" =~ ^[0-9]+$ ]] && [[ "$EXISTING_PID" -ne "$$" ]] && kill -0 "$EXISTING_PID" 2>/dev/null; then
-            log_msg "ERROR: Another collector instance (PID $EXISTING_PID) holds $LOCK_FILE. Exiting."
+init_collector_runtime() {
+    mkdir -p "$RAW_DIR"
+
+    # Acquire exclusive lock (flock on Linux, PID-lock fallback on Git Bash/MSYS2)
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>"$LOCK_FILE"
+        if ! flock -n 9; then
+            log_msg "ERROR: Another collector instance holds $LOCK_FILE. Exiting."
             echo "Collector is already running (lock held)." >&2
             exit 2
         fi
+    else
+        if [[ -f "$LOCK_FILE" ]]; then
+            EXISTING_PID="$(tr -d '\r\n ' < "$LOCK_FILE" 2>/dev/null || true)"
+            if [[ "$EXISTING_PID" =~ ^[0-9]+$ ]] && [[ "$EXISTING_PID" -ne "$$" ]] && kill -0 "$EXISTING_PID" 2>/dev/null; then
+                log_msg "ERROR: Another collector instance (PID $EXISTING_PID) holds $LOCK_FILE. Exiting."
+                echo "Collector is already running (lock held)." >&2
+                exit 2
+            fi
+        fi
+        printf "%d\n" "$$" > "$LOCK_FILE"
     fi
-    printf "%d\n" "$$" > "$LOCK_FILE"
-fi
 
-printf "%d\n" "$$" > "$PID_FILE"
+    printf "%d\n" "$$" > "$PID_FILE"
+    RUNNING=1
+    trap 'RUNNING=0' SIGTERM SIGINT
+    trap 'cleanup' EXIT
+}
 
 cleanup() {
     log_msg "INFO: Collector (PID $$) stopping cleanly."
@@ -117,19 +122,44 @@ cleanup() {
     fi
     rm -f "$LOCK_FILE"
 }
-RUNNING=1
-trap 'RUNNING=0' SIGTERM SIGINT
-trap 'cleanup' EXIT
 
 # --- GPU Detection (INTERFACES.md Section 3.4) ---
 GPU_VENDOR="none"
 GPU_NAME=""
 AMD_CARD_DIR=""
+GPU_PCI_STATUS_FILE=""
+
+find_nvidia_pci_status_file() {
+    local pci_dir pci_vendor pci_class
+    for pci_dir in /sys/bus/pci/devices/*; do
+        [[ -r "$pci_dir/vendor" && -r "$pci_dir/class" ]] || continue
+        pci_vendor="$(<"$pci_dir/vendor")"
+        pci_class="$(<"$pci_dir/class")"
+        if [[ "$pci_vendor" == "0x10de" && ( "$pci_class" == 0x0300* || "$pci_class" == 0x0302* ) ]]; then
+            if [[ -r "$pci_dir/power/runtime_status" ]]; then
+                GPU_PCI_STATUS_FILE="$pci_dir/power/runtime_status"
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
 
 detect_gpu() {
     if command -v nvidia-smi >/dev/null 2>&1; then
-        local nv_name
-        nv_name="$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits -i 0 2>/dev/null | tr -d '\r' | head -n 1 || true)"
+        find_nvidia_pci_status_file || true
+        local nv_name=""
+        local nv_info_file
+        for nv_info_file in /proc/driver/nvidia/gpus/*/information; do
+            [[ -r "$nv_info_file" ]] || continue
+            nv_name="$(awk -F': ' '/^Model:/ { sub(/^[^:]+:[[:space:]]*/, ""); print; exit }' "$nv_info_file" 2>/dev/null | tr -d '\r' || true)"
+            if [[ -n "$nv_name" ]]; then
+                break
+            fi
+        done
+        if [[ -z "$nv_name" ]]; then
+            nv_name="$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits -i 0 2>/dev/null | tr -d '\r' | head -n 1 || true)"
+        fi
         nv_name="${nv_name#"${nv_name%%[![:space:]]*}"}"
         nv_name="${nv_name%"${nv_name##*[![:space:]]}"}"
         if [[ -n "$nv_name" && ! "$nv_name" =~ "NVIDIA-SMI has failed" && ! "$nv_name" =~ "Unable to" ]]; then
@@ -155,8 +185,6 @@ detect_gpu() {
     GPU_VENDOR="none"
     GPU_NAME=""
 }
-
-detect_gpu
 
 json_escape() {
     local s="${1//$'\r'/}"
@@ -215,9 +243,6 @@ write_system_info() {
 SYS_EOF
     mv -f "$tmp_file" "$SYSINFO_FILE"
 }
-
-write_system_info
-log_msg "INFO: Collector started (PID $$, interval=${INTERVAL_S}s, simulate_temp=${SIMULATE_TEMP}, gpu=${GPU_VENDOR})."
 
 METRICS_HEADER="epoch,iso_time,cpu_pct,mem_used_pct,mem_avail_mb,swap_used_pct,disk_used_pct,load1,load5,load15,net_rx_kbps,net_tx_kbps,cpu_temp_c,gpu_util_pct,gpu_mem_used_pct,gpu_temp_c"
 PROCESSES_HEADER="epoch,pid,command,cpu_pct,mem_pct,rank"
@@ -376,6 +401,15 @@ poll_gpu_metrics() {
     fi
 
     if [[ "$GPU_VENDOR" == "nvidia" ]]; then
+        # Avoid waking a hybrid/Optimus dGPU from RTD3 sleep just to poll idle telemetry
+        if [[ -n "$GPU_PCI_STATUS_FILE" && -r "$GPU_PCI_STATUS_FILE" ]]; then
+            local pci_status
+            pci_status="$(<"$GPU_PCI_STATUS_FILE")"
+            if [[ "$pci_status" == "suspended" ]]; then
+                printf ",,"
+                return 0
+            fi
+        fi
         local nv_out
         nv_out="$(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits -i 0 2>/dev/null | tr -d '\r' | head -n 1 || true)"
         if [[ -n "$nv_out" ]]; then
@@ -426,15 +460,26 @@ collect_top_processes() {
     fi
 
     local ps_out
-    if ps_out="$(ps -eo pid=,comm=,%cpu=,%mem= --sort=-%cpu 2>/dev/null)" && [[ -n "$ps_out" ]]; then
+    if ps_out="$(ps -eo pid=,%cpu=,%mem=,etimes=,comm= --sort=-%cpu 2>/dev/null)" && [[ -n "$ps_out" ]]; then
+        # Place comm last so spaces in comm never shift numeric columns; skip ps itself and <2s newborn spikes
         awk -v ep="$epoch" -v top_n="$TOP_N" '
-        NR <= top_n {
+        {
+            if (NF < 5) next
             pid = $1
-            cpu = $3 + 0
-            mem = $4 + 0
-            cmd = $2
+            cpu = $2 + 0
+            mem = $3 + 0
+            etimes = $4 + 0
+            cmd = $5
+            for (i = 6; i <= NF; i++) {
+                cmd = cmd "_" $i
+            }
             gsub(/[, \t\r\n]+/, "_", cmd)
-            printf "%s,%s,%s,%.1f,%.1f,%d\n", ep, pid, cmd, cpu, mem, NR
+            if (cmd == "ps" || etimes < 2) next
+            count++
+            if (count <= top_n) {
+                printf "%s,%s,%s,%.1f,%.1f,%d\n", ep, pid, cmd, cpu, mem, count
+            }
+            if (count >= top_n) exit
         }' <<< "$ps_out" >> "$proc_file"
     else
         # Fallback for Git Bash / MSYS2 ps where -eo and --sort are unsupported
@@ -451,89 +496,100 @@ collect_top_processes() {
     fi
 }
 
-read -r PREV_CPU_TOTAL PREV_CPU_IDLE <<< "$(read_cpu_stat)"
-read -r PREV_NET_RX PREV_NET_TX <<< "$(read_net_bytes)"
-PREV_EPOCH="$(date -u +%s)"
-FIRST_SAMPLE=1
-SAMPLE_COUNT=0
-LAST_GPU_FIELDS=",,"
+run_collector() {
+    init_collector_runtime
+    detect_gpu
+    write_system_info
+    log_msg "INFO: Collector started (PID $$, interval=${INTERVAL_S}s, simulate_temp=${SIMULATE_TEMP}, gpu=${GPU_VENDOR})."
 
-while [[ "$RUNNING" -eq 1 ]]; do
-    sleep "$INTERVAL_S" &
-    wait $! 2>/dev/null || true
-    [[ "$RUNNING" -eq 0 ]] && break
+    read -r PREV_CPU_TOTAL PREV_CPU_IDLE <<< "$(read_cpu_stat)"
+    read -r PREV_NET_RX PREV_NET_TX <<< "$(read_net_bytes)"
+    PREV_EPOCH="$(date -u +%s)"
+    FIRST_SAMPLE=1
+    SAMPLE_COUNT=0
+    LAST_GPU_FIELDS=",,"
 
-    EPOCH="$(date -u +%s)"
-    ISO_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    DATE_STR="$(date -u +"%Y%m%d")"
+    while [[ "$RUNNING" -eq 1 ]]; do
+        sleep "$INTERVAL_S" &
+        wait $! 2>/dev/null || true
+        [[ "$RUNNING" -eq 0 ]] && break
 
-    # CPU delta
-    read -r CURR_CPU_TOTAL CURR_CPU_IDLE <<< "$(read_cpu_stat)"
-    CPU_PCT="$(awk -v t1="$PREV_CPU_TOTAL" -v i1="$PREV_CPU_IDLE" \
-                   -v t2="$CURR_CPU_TOTAL" -v i2="$CURR_CPU_IDLE" 'BEGIN {
-        dt = t2 - t1
-        di = i2 - i1
-        if (dt > 0) {
-            busy = ((dt - di) / dt) * 100.0
-            if (busy < 0) busy = 0.0
-            if (busy > 100) busy = 100.0
-            printf "%.1f", busy
-        } else {
-            printf "0.0"
-        }
-    }')"
-    PREV_CPU_TOTAL="$CURR_CPU_TOTAL"
-    PREV_CPU_IDLE="$CURR_CPU_IDLE"
+        EPOCH="$(date -u +%s)"
+        ISO_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        DATE_STR="$(date -u +"%Y%m%d")"
 
-    # Memory & Swap
-    read -r MEM_USED_PCT MEM_AVAIL_MB SWAP_USED_PCT <<< "$(read_memory)"
-
-    # Disk
-    DISK_USED_PCT="$(read_disk_pct)"
-    [[ -z "$DISK_USED_PCT" ]] && DISK_USED_PCT="0.0"
-
-    # Load average
-    read -r LOAD1 LOAD5 LOAD15 <<< "$(read_loadavg)"
-
-    # Network rate
-    read -r CURR_NET_RX CURR_NET_TX <<< "$(read_net_bytes)"
-    DT=$(( EPOCH - PREV_EPOCH ))
-    if [[ "$FIRST_SAMPLE" -eq 1 || "$DT" -le 0 ]]; then
-        NET_RX_KBPS="0.0"
-        NET_TX_KBPS="0.0"
-        FIRST_SAMPLE=0
-    else
-        read -r NET_RX_KBPS NET_TX_KBPS <<< "$(awk -v rx1="$PREV_NET_RX" -v tx1="$PREV_NET_TX" \
-            -v rx2="$CURR_NET_RX" -v tx2="$CURR_NET_TX" -v dt="$DT" 'BEGIN {
-            drx = rx2 - rx1; if (drx < 0) drx = 0
-            dtx = tx2 - tx1; if (dtx < 0) dtx = 0
-            printf "%.1f %.1f\n", (drx * 8.0) / (1000.0 * dt), (dtx * 8.0) / (1000.0 * dt)
+        # CPU delta
+        read -r CURR_CPU_TOTAL CURR_CPU_IDLE <<< "$(read_cpu_stat)"
+        CPU_PCT="$(awk -v t1="$PREV_CPU_TOTAL" -v i1="$PREV_CPU_IDLE" \
+                       -v t2="$CURR_CPU_TOTAL" -v i2="$CURR_CPU_IDLE" 'BEGIN {
+            dt = t2 - t1
+            di = i2 - i1
+            if (dt > 0) {
+                busy = ((dt - di) / dt) * 100.0
+                if (busy < 0) busy = 0.0
+                if (busy > 100) busy = 100.0
+                printf "%.1f", busy
+            } else {
+                printf "0.0"
+            }
         }')"
-    fi
-    PREV_NET_RX="$CURR_NET_RX"
-    PREV_NET_TX="$CURR_NET_TX"
-    PREV_EPOCH="$EPOCH"
+        PREV_CPU_TOTAL="$CURR_CPU_TOTAL"
+        PREV_CPU_IDLE="$CURR_CPU_IDLE"
 
-    # CPU Temperature
-    CPU_TEMP_C="$(read_cpu_temp "$CPU_PCT")"
+        # Memory & Swap
+        read -r MEM_USED_PCT MEM_AVAIL_MB SWAP_USED_PCT <<< "$(read_memory)"
 
-    # GPU Polling every gpu_poll_every samples
-    if [[ "$COLLECT_GPU" != "true" || "$GPU_VENDOR" == "none" ]]; then
-        LAST_GPU_FIELDS=",,"
-    elif (( SAMPLE_COUNT % GPU_POLL_EVERY == 0 )); then
-        LAST_GPU_FIELDS="$(poll_gpu_metrics)"
-    fi
-    SAMPLE_COUNT=$(( SAMPLE_COUNT + 1 ))
+        # Disk
+        DISK_USED_PCT="$(read_disk_pct)"
+        [[ -z "$DISK_USED_PCT" ]] && DISK_USED_PCT="0.0"
 
-    METRICS_FILE="$RAW_DIR/metrics_${DATE_STR}.csv"
-    if [[ ! -f "$METRICS_FILE" ]]; then
-        printf "%s\n" "$METRICS_HEADER" > "$METRICS_FILE"
-    fi
+        # Load average
+        read -r LOAD1 LOAD5 LOAD15 <<< "$(read_loadavg)"
 
-    printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n" \
-        "$EPOCH" "$ISO_TIME" "$CPU_PCT" "$MEM_USED_PCT" "$MEM_AVAIL_MB" \
-        "$SWAP_USED_PCT" "$DISK_USED_PCT" "$LOAD1" "$LOAD5" "$LOAD15" \
-        "$NET_RX_KBPS" "$NET_TX_KBPS" "$CPU_TEMP_C" "$LAST_GPU_FIELDS" >> "$METRICS_FILE"
+        # Network rate
+        read -r CURR_NET_RX CURR_NET_TX <<< "$(read_net_bytes)"
+        DT=$(( EPOCH - PREV_EPOCH ))
+        if [[ "$FIRST_SAMPLE" -eq 1 || "$DT" -le 0 ]]; then
+            NET_RX_KBPS="0.0"
+            NET_TX_KBPS="0.0"
+            FIRST_SAMPLE=0
+        else
+            read -r NET_RX_KBPS NET_TX_KBPS <<< "$(awk -v rx1="$PREV_NET_RX" -v tx1="$PREV_NET_TX" \
+                -v rx2="$CURR_NET_RX" -v tx2="$CURR_NET_TX" -v dt="$DT" 'BEGIN {
+                drx = rx2 - rx1; if (drx < 0) drx = 0
+                dtx = tx2 - tx1; if (dtx < 0) dtx = 0
+                printf "%.1f %.1f\n", (drx * 8.0) / (1000.0 * dt), (dtx * 8.0) / (1000.0 * dt)
+            }')"
+        fi
+        PREV_NET_RX="$CURR_NET_RX"
+        PREV_NET_TX="$CURR_NET_TX"
+        PREV_EPOCH="$EPOCH"
 
-    collect_top_processes "$EPOCH" "$DATE_STR"
-done
+        # CPU Temperature
+        CPU_TEMP_C="$(read_cpu_temp "$CPU_PCT")"
+
+        # GPU Polling every gpu_poll_every samples
+        if [[ "$COLLECT_GPU" != "true" || "$GPU_VENDOR" == "none" ]]; then
+            LAST_GPU_FIELDS=",,"
+        elif (( SAMPLE_COUNT % GPU_POLL_EVERY == 0 )); then
+            LAST_GPU_FIELDS="$(poll_gpu_metrics)"
+        fi
+        SAMPLE_COUNT=$(( SAMPLE_COUNT + 1 ))
+
+        METRICS_FILE="$RAW_DIR/metrics_${DATE_STR}.csv"
+        if [[ ! -f "$METRICS_FILE" ]]; then
+            printf "%s\n" "$METRICS_HEADER" > "$METRICS_FILE"
+        fi
+
+        printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n" \
+            "$EPOCH" "$ISO_TIME" "$CPU_PCT" "$MEM_USED_PCT" "$MEM_AVAIL_MB" \
+            "$SWAP_USED_PCT" "$DISK_USED_PCT" "$LOAD1" "$LOAD5" "$LOAD15" \
+            "$NET_RX_KBPS" "$NET_TX_KBPS" "$CPU_TEMP_C" "$LAST_GPU_FIELDS" >> "$METRICS_FILE"
+
+        collect_top_processes "$EPOCH" "$DATE_STR"
+    done
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    run_collector
+fi
