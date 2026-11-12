@@ -86,6 +86,7 @@ port = 5000
 simulate_temp = false
 collect_gpu = true
 gpu_poll_every = 3
+retention_hours = 168
 EOF
 fi
 

@@ -495,6 +495,7 @@ SYSMON_INT_BOUNDS = {
     "interval_s": (1, 86400),
     "pipeline_interval_s": (1, 86400),
     "gpu_poll_every": (1, 1000),
+    "retention_hours": (0, 87600),
 }
 METRIC_BOUNDS = {
     "cpu_pct": (0, 100),
@@ -518,7 +519,8 @@ def get_config():
         "pipeline_interval_s": 10,
         "simulate_temp": False,
         "collect_gpu": True,
-        "gpu_poll_every": 3
+        "gpu_poll_every": 3,
+        "retention_hours": 168
     }
 
     if os.path.exists(sysmon_path):
@@ -531,6 +533,7 @@ def get_config():
             sysmon_data["simulate_temp"] = sec.getboolean('simulate_temp', fallback=False)
             sysmon_data["collect_gpu"] = sec.getboolean('collect_gpu', fallback=True)
             sysmon_data["gpu_poll_every"] = sec.getint('gpu_poll_every', fallback=3)
+            sysmon_data["retention_hours"] = sec.getint('retention_hours', fallback=168)
 
     thresholds_data = {}
     if os.path.exists(thresholds_path):

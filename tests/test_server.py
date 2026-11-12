@@ -180,3 +180,17 @@ def test_test_alert(client):
     with patch('src.server.os.path.exists', return_value=True):
         response = client.post('/api/alerts/test')
         assert response.get_json()["ok"] is True
+
+
+def test_config_retention_hours_validation_and_persistence(client):
+    """Test saving valid retention_hours (including 0 to disable) and rejecting negative values."""
+    bad = client.post('/api/config', json={"sysmon": {"retention_hours": -1}})
+    assert bad.status_code == 400
+    assert bad.get_json()["field"] == "sysmon.retention_hours"
+
+    ok_save = client.post('/api/config', json={"sysmon": {"retention_hours": 0}})
+    assert ok_save.status_code == 200
+    assert ok_save.get_json()["ok"] is True
+
+    cfg = client.get('/api/config').get_json()
+    assert cfg["sysmon"]["retention_hours"] == 0

@@ -244,6 +244,71 @@ class TestCleaner(unittest.TestCase):
         self.assertGreaterEqual(report["gaps"], 1)
         self.assertGreaterEqual(report["outliers"], 1)
 
+    def test_prune_old_data_deletes_expired_files_and_rows(self) -> None:
+        """Retention pruning removes expired raw files, trims boundary rows, and keeps recent data."""
+        from datetime import datetime, timezone
+
+        now_ep = int(datetime(2026, 11, 12, 12, 0, 0, tzinfo=timezone.utc).timestamp())
+        cutoff_ep = now_ep - 24 * 3600  # 2026-11-11 12:00:00 UTC
+
+        # Old file completely before cutoff (2026-11-01) -> deleted outright
+        old_metrics = self.write_raw_csv(
+            "metrics_20261101.csv",
+            [make_raw_row(cutoff_ep - 10 * 86400)],
+        )
+        old_procs = self.raw_dir / "processes_20261101.csv"
+        old_procs.write_text(
+            "epoch,pid,command,cpu_pct,mem_pct,rank\n"
+            f"{cutoff_ep - 10 * 86400},101,bash,1.0,0.5,1\n",
+            encoding="utf-8",
+        )
+
+        # Boundary day file (2026-11-11): 1 expired row + 1 fresh row
+        boundary_metrics = self.write_raw_csv(
+            "metrics_20261111.csv",
+            [make_raw_row(cutoff_ep - 300), make_raw_row(cutoff_ep + 300)],
+        )
+        boundary_procs = self.raw_dir / "processes_20261111.csv"
+        boundary_procs.write_text(
+            "epoch,pid,command,cpu_pct,mem_pct,rank\n"
+            f"{cutoff_ep - 300},101,old_proc,2.0,0.5,1\n"
+            f"{cutoff_ep + 300},102,fresh_proc,3.0,0.5,1\n",
+            encoding="utf-8",
+        )
+
+        # Alerts CSV with 1 expired + 1 fresh alert
+        alerts_csv = self.base_path / "alerts.csv"
+        alerts_csv.write_text(
+            "id,epoch,iso_time,rule,metric,value,threshold,severity,state,process,acknowledged\n"
+            f"1,{cutoff_ep - 60},2026-11-11T11:59:00Z,cpu_high,cpu_pct,90,85,warning,firing,bash,0\n"
+            f"2,{cutoff_ep + 60},2026-11-11T12:01:00Z,cpu_high,cpu_pct,91,85,warning,firing,python3,0\n",
+            encoding="utf-8",
+        )
+
+        # retention_hours=0 must be a no-op
+        noop = cleaner.prune_old_data(self.raw_dir, 0, now_epoch=now_ep, alerts_path=alerts_csv)
+        self.assertEqual(noop, {"files_deleted": 0, "rows_pruned": 0, "alerts_pruned": 0})
+        self.assertTrue(old_metrics.exists())
+
+        stats = cleaner.prune_old_data(self.raw_dir, 24, now_epoch=now_ep, alerts_path=alerts_csv)
+        self.assertEqual(stats["files_deleted"], 2)
+        self.assertEqual(stats["rows_pruned"], 2)
+        self.assertEqual(stats["alerts_pruned"], 1)
+        self.assertFalse(old_metrics.exists())
+        self.assertFalse(old_procs.exists())
+
+        with open(boundary_metrics, encoding="utf-8") as f:
+            kept_m = list(csv.DictReader(f))
+        self.assertEqual([int(r["epoch"]) for r in kept_m], [cutoff_ep + 300])
+
+        with open(boundary_procs, encoding="utf-8") as f:
+            kept_p = list(csv.DictReader(f))
+        self.assertEqual([r["command"] for r in kept_p], ["fresh_proc"])
+
+        with open(alerts_csv, encoding="utf-8") as f:
+            kept_a = list(csv.DictReader(f))
+        self.assertEqual([r["id"] for r in kept_a], ["2"])
+
 
 if __name__ == "__main__":
     unittest.main()

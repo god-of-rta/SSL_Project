@@ -36,23 +36,86 @@ else
     PYTHON_BIN="python"
 fi
 
-START_INFO=$("$PYTHON_BIN" -c '
-import os, sys, time
-raw_dir = sys.argv[1]
+read_pipeline_state() {
+    "$PYTHON_BIN" -c '
+import configparser, datetime, os, re, sys, time
+
+raw_dir, conf_path, alerts_path = sys.argv[1], sys.argv[2], sys.argv[3]
+now_ts = time.time()
+ret_h = 168
+if os.path.isfile(conf_path):
+    cfg = configparser.ConfigParser(interpolation=None)
+    try:
+        cfg.read(conf_path, encoding="utf-8")
+        ret_h = max(0, int(cfg.get("sysmon", "retention_hours", fallback="168")))
+    except Exception:
+        ret_h = 168
+
+cutoff = int(now_ts) - ret_h * 3600 if ret_h > 0 else 0
+may_expire = False
+dated_re = re.compile(r"^(?:metrics|processes)_(\d{4})(\d{2})(\d{2})\.csv$")
+
+def first_row_expired(path, cut):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            hdr = f.readline()
+            if not hdr:
+                return False
+            cols = [c.strip() for c in hdr.strip("\r\n").split(",")]
+            if "epoch" not in cols:
+                return False
+            idx = cols.index("epoch")
+            for line in f:
+                if not line.strip():
+                    continue
+                parts = line.split(",")
+                if idx < len(parts):
+                    try:
+                        return int(float(parts[idx].strip())) < cut
+                    except ValueError:
+                        return False
+                return False
+    except OSError:
+        return False
+    return False
+
 items = []
 if os.path.isdir(raw_dir):
     for e in sorted(os.scandir(raw_dir), key=lambda x: x.name):
         if e.is_file() and e.name.endswith(".csv") and (e.name.startswith("metrics_") or e.name.startswith("processes_")):
             st = e.stat()
             items.append(f"{e.name}:{st.st_size}:{st.st_mtime_ns}")
-print(f"{time.time():.4f}|" + ";".join(items))
-' "$RAW_DIR")
+            if ret_h > 0 and not may_expire:
+                m = dated_re.match(e.name)
+                if m:
+                    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                    try:
+                        d_start = int(datetime.datetime(y, mo, d, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp())
+                        d_end = int(datetime.datetime(y, mo, d, 23, 59, 59, tzinfo=datetime.timezone.utc).timestamp())
+                        if d_end < cutoff or (d_start < cutoff and first_row_expired(e.path, cutoff)):
+                            may_expire = True
+                    except ValueError:
+                        pass
+
+if ret_h > 0 and not may_expire and os.path.isfile(alerts_path):
+    if first_row_expired(alerts_path, cutoff):
+        may_expire = True
+
+print(f"{now_ts:.4f}|{ret_h}|{1 if may_expire else 0}|" + ";".join(items))
+' "$RAW_DIR" "$CONFIG_DIR/sysmon.conf" "$DATA_DIR/alerts.csv"
+}
+
+START_INFO="$(read_pipeline_state)"
 START_EPOCH="${START_INFO%%|*}"
-RAW_SIG="${START_INFO#*|}"
+REST="${START_INFO#*|}"
+RETENTION_HOURS="${REST%%|*}"
+REST="${REST#*|}"
+MAY_EXPIRE="${REST%%|*}"
+RAW_SIG="${REST#*|}"
 START_INT=${START_EPOCH%.*}
 STAMP_FILE="$DATA_DIR/.pipeline_raw_stamp"
 RAW_UNCHANGED=false
-if [ -f "$STAMP_FILE" ] && [ -f "$CLEAN_DIR/metrics.csv" ] && [ -f "$DATA_DIR/stats.json" ] && [ "$(cat "$STAMP_FILE" 2>/dev/null)" = "$RAW_SIG" ]; then
+if [ "$MAY_EXPIRE" = "0" ] && [ -f "$STAMP_FILE" ] && [ -f "$CLEAN_DIR/metrics.csv" ] && [ -f "$DATA_DIR/stats.json" ] && [ "$(cat "$STAMP_FILE" 2>/dev/null)" = "$RAW_SIG" ]; then
     RAW_UNCHANGED=true
 fi
 
@@ -70,7 +133,9 @@ else
         if ! "$PYTHON_BIN" "$ROOT_DIR/src/cleaner.py" \
             --input-dir "$RAW_DIR" \
             --output "$CLEAN_DIR/metrics.csv" \
-            --report "$CLEAN_DIR/cleaning_report.json" >> "$LOG_FILE" 2>&1; then
+            --report "$CLEAN_DIR/cleaning_report.json" \
+            --retention-hours "$RETENTION_HOURS" \
+            --alerts "$DATA_DIR/alerts.csv" >> "$LOG_FILE" 2>&1; then
             FAILED_STAGE="cleaner"
             STAGE_OK=false
             echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Cleaner stage failed" >> "$LOG_FILE"
@@ -99,6 +164,10 @@ else
     fi
 
     if [ "$STAGE_OK" = true ]; then
+        if [ "$MAY_EXPIRE" = "1" ]; then
+            POST_INFO="$(read_pipeline_state)"
+            RAW_SIG="${POST_INFO##*|}"
+        fi
         printf "%s" "$RAW_SIG" > "$STAMP_FILE"
     fi
 fi
