@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#e9eaee">
+    <title>SysMon | Alerts</title>
+    <script>
+        /* apply the saved (or system) theme before first paint */
+        try {
+            document.documentElement.dataset.theme = localStorage.getItem("sysmon-theme") ||
+                (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        } catch (e) { document.documentElement.dataset.theme = "light"; }
+    </script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body data-page="alerts">
+
+    <div class="shell">
+        <aside class="sidebar" id="sidebar"></aside>
+
+        <main class="workspace">
+
+            <header class="topbar">
+                <h1>Alerts</h1>
+                <div class="header-actions">
+                    <button class="btn btn-quiet" id="sendTestAlert" type="button">Send test alert</button>
+                    <button class="btn btn-primary" id="ackAll" type="button">Acknowledge all</button>
+                </div>
+            </header>
+
+            <section class="stat-row" aria-label="Alert summary">
+                <article class="stat-card">
+                    <div class="stat-head"><span>Firing now</span><i class="level-dot" id="firingLevel"></i></div>
+                    <div class="stat-value"><strong id="firingCount">--</strong></div>
+                    <div class="stat-meta">Rules currently over their limit</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-head"><span>Needs acknowledging</span></div>
+                    <div class="stat-value"><strong id="unackCount">--</strong></div>
+                    <div class="stat-meta">Firing alerts nobody has seen</div>
+                </article>
+                <article class="stat-card">
+                    <div class="stat-head"><span>Recorded</span></div>
+                    <div class="stat-value"><strong id="totalCount">--</strong></div>
+                    <div class="stat-meta">Firing and resolved events</div>
+                </article>
+            </section>
+
+            <section class="pill-row two" aria-label="Filters">
+                <label class="pill">
+                    <span>State:</span>
+                    <select id="stateFilter">
+                        <option value="all">All</option>
+                        <option value="firing">Firing</option>
+                        <option value="resolved">Resolved</option>
+                    </select>
+                </label>
+                <label class="pill">
+                    <span>Severity:</span>
+                    <select id="severityFilter">
+                        <option value="all">All</option>
+                        <option value="critical">Critical</option>
+                        <option value="warning">Warning</option>
+                    </select>
+                </label>
+            </section>
+
+            <section class="panel">
+                <div class="panel-heading">
+                    <div>
+                        <h2>Alert history</h2>
+                        <p id="historyCount">Newest first</p>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Alert</th>
+                                <th>Severity</th>
+                                <th>State</th>
+                                <th>Busiest process</th>
+                                <th>Time</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="alertTable">
+                            <tr>
+                                <td colspan="6" class="empty-cell">Loading alerts…</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <footer class="page-footer">
+                <span>SysMon · Alerts</span>
+                <span>Thresholds are set on the Settings page</span>
+            </footer>
+        </main>
+    </div>
+
+    <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+    <script src="js/common.js"></script>
+    <script src="js/alerts.js"></script>
+</body>
+
+</html>
