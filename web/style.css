@@ -3005,3 +3005,123 @@ tbody tr:hover {
         gap: 4px;
     }
 }
+
+
+/* ==================================================================
+   Liquid glass boost
+   Clearer glass, a bright liquid rim, a cursor-following specular
+   highlight and glossy controls. Builds on the glass layer above.
+=================================================================== */
+:root {
+    --glass-blur: blur(30px) saturate(195%) brightness(1.04);
+    --glass-bg: rgba(255, 255, 255, .42);
+    --glass-rim-a: rgba(255, 255, 255, .95);
+    --glass-rim-b: rgba(255, 255, 255, .55);
+    --spot: rgba(255, 255, 255, .55);
+
+    --scene-a: rgba(91, 140, 255, .62);
+    --scene-b: rgba(176, 120, 255, .50);
+    --scene-c: rgba(56, 208, 200, .48);
+    --scene-d: rgba(255, 140, 170, .42);
+}
+
+:root[data-theme="dark"] {
+    --glass-bg: rgba(30, 36, 54, .36);
+    --glass-rim-a: rgba(255, 255, 255, .42);
+    --glass-rim-b: rgba(255, 255, 255, .16);
+    --spot: rgba(160, 190, 255, .20);
+
+    --scene-a: rgba(59, 110, 255, .42);
+    --scene-b: rgba(139, 92, 246, .36);
+    --scene-c: rgba(20, 184, 166, .26);
+    --scene-d: rgba(236, 72, 153, .22);
+}
+
+.panel,
+.stat-card,
+.pillnav,
+.topnav-status {
+    position: relative;
+}
+
+/* liquid rim: bright where light hits (top-left), softer opposite */
+.panel::after,
+.stat-card::after,
+.pillnav::after,
+.topnav-status::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1.5px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, var(--glass-rim-a) 0%, transparent 34%, transparent 66%, var(--glass-rim-b) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    pointer-events: none;
+}
+
+/* specular highlight that follows the cursor (position set in common.js) */
+.panel::before,
+.stat-card::before {
+    content: "";
+    display: block;
+    position: absolute;
+    inset: 0;
+    height: auto;
+    border-radius: inherit;
+    background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 0%), var(--spot), transparent 65%);
+    opacity: 0;
+    transition: opacity .3s;
+    pointer-events: none;
+}
+
+@media (hover: hover) {
+
+    .panel:hover::before,
+    .stat-card:hover::before {
+        opacity: 1;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-3px);
+    }
+}
+
+/* glossy controls */
+.pill-link.active {
+    background: linear-gradient(180deg, rgba(255, 255, 255, .26), rgba(255, 255, 255, 0) 55%), var(--pill-active-bg);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), 0 4px 14px rgba(8, 12, 24, .28);
+}
+
+.btn-primary {
+    background: linear-gradient(180deg, rgba(255, 255, 255, .3), rgba(255, 255, 255, 0) 52%), linear-gradient(180deg, #4a80ff, #2755dc);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 18px rgba(47, 102, 240, .38);
+}
+
+.btn-primary:hover {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), 0 10px 26px rgba(47, 102, 240, .46);
+}
+
+.rail-btn:hover,
+.rail-btn:focus-visible {
+    background: rgba(255, 255, 255, .16);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3);
+}
+
+.input,
+.select {
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    box-shadow: inset 0 1px 0 var(--glass-hi);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    :root {
+        --glass-bg: rgba(255, 255, 255, .9);
+    }
+
+    :root[data-theme="dark"] {
+        --glass-bg: rgba(28, 33, 48, .94);
+    }
+}
