@@ -213,6 +213,27 @@ function renderSidebar() {
     });
 }
 
+// --------------------------------------------------
+// LIQUID GLASS HIGHLIGHT (light follows the cursor across glass cards)
+// --------------------------------------------------
+
+function initGlassLight() {
+    if (!window.matchMedia("(hover: hover)").matches) return;
+
+    let frame = 0;
+    document.addEventListener("pointermove", (event) => {
+        const card = event.target.closest && event.target.closest(".panel, .stat-card");
+        if (!card || frame) return;
+
+        frame = requestAnimationFrame(() => {
+            frame = 0;
+            const box = card.getBoundingClientRect();
+            card.style.setProperty("--mx", `${event.clientX - box.left}px`);
+            card.style.setProperty("--my", `${event.clientY - box.top}px`);
+        });
+    }, { passive: true });
+}
+
 // Re-fetch whatever the current page shows after a quick action.
 function refreshAfterAction() {
     refreshAlerts();
@@ -330,5 +351,6 @@ async function withBusy(button, task) {
 
 // Scripts sit at the end of <body>, so the sidebar mount already exists.
 renderSidebar();
+initGlassLight();
 refreshAlerts();
 setInterval(refreshAlerts, 15000);
