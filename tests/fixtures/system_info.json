@@ -1,0 +1,14 @@
+{
+  "collected_at": "2026-11-01T00:00:00Z",
+  "hostname": "sysmon-fixture",
+  "kernel": "6.8.0",
+  "cpu_model": "Fixture 8-Core CPU",
+  "cpu_cores": 8,
+  "total_ram_mb": 15900,
+  "disk_total_gb": 512,
+  "cpu_temp_max_c": 100,
+  "gpu": {
+    "vendor": "nvidia",
+    "name": "NVIDIA GeForce RTX 4060 Laptop GPU"
+  }
+}
