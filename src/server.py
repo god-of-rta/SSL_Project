@@ -3,6 +3,8 @@ import subprocess
 import json
 import csv
 import os
+import sys
+import math
 import threading
 import time
 import tempfile
@@ -26,21 +28,49 @@ pipeline_lock = threading.Lock()
 # --- Helper Functions ---
 
 def get_file_path(filename, subfolder=""):
-    """Locates files in data/ subfolders first, falling back to tests/fixtures/."""
+    """Locates files in data/ subfolders, falling back to tests/fixtures/ only when opted in."""
     data_path = os.path.join(DATA_DIR, subfolder, filename) if subfolder else os.path.join(DATA_DIR, filename)
     if os.path.exists(data_path):
         return data_path
 
-    fixture_prefix = f"{subfolder}_{filename}" if subfolder else filename
-    fixture_path = os.path.join(FIXTURES_DIR, fixture_prefix)
-    if os.path.exists(fixture_path):
-        return fixture_path
+    if os.environ.get('SYSMON_USE_FIXTURES') == '1':
+        fixture_prefix = f"{subfolder}_{filename}" if subfolder else filename
+        fixture_path = os.path.join(FIXTURES_DIR, fixture_prefix)
+        if os.path.exists(fixture_path):
+            return fixture_path
 
-    fixture_direct = os.path.join(FIXTURES_DIR, filename)
-    if os.path.exists(fixture_direct):
-        return fixture_direct
+        fixture_direct = os.path.join(FIXTURES_DIR, filename)
+        if os.path.exists(fixture_direct):
+            return fixture_direct
 
     return data_path
+
+def error_response(message, status=400, field=None):
+    """Builds a Section 9 JSON error response."""
+    body = {"ok": False, "error": message}
+    if field:
+        body["field"] = field
+    return jsonify(body), status
+
+def parse_json_object():
+    """Parses request body as a JSON object; returns (dict, None) or (None, error_tuple)."""
+    if not request.get_data(cache=True):
+        return {}, None
+    try:
+        data = request.get_json(force=False, silent=False)
+    except Exception:
+        return None, error_response("Invalid JSON body", 400)
+    if data is None:
+        return {}, None
+    if not isinstance(data, dict):
+        return None, error_response("Request body must be a JSON object", 400)
+    return data, None
+
+def is_strict_int(val):
+    return isinstance(val, int) and not isinstance(val, bool)
+
+def is_strict_number(val):
+    return isinstance(val, (int, float)) and not isinstance(val, bool) and math.isfinite(val)
 
 def atomic_write_json(filepath, data):
     """Writes JSON atomically with guaranteed temp file cleanup."""
@@ -140,10 +170,7 @@ def get_status():
         except Exception:
             pass
 
-    # Read last sample epoch (check clean metrics first)
-    last_sample_epoch = None
-    clean_metrics_path = get_file_path('metrics.csv', 'clean')
-    
+    # Read last sample epoch from clean metrics and raw data (take newest valid epoch)
     def get_last_epoch_from_file(filepath):
         try:
             with open(filepath, 'rb') as f:
@@ -155,16 +182,22 @@ def get_status():
         except Exception:
             return None
 
+    epoch_candidates = []
+    clean_metrics_path = get_file_path('metrics.csv', 'clean')
     if os.path.exists(clean_metrics_path):
-        last_sample_epoch = get_last_epoch_from_file(clean_metrics_path)
+        clean_ep = get_last_epoch_from_file(clean_metrics_path)
+        if clean_ep is not None:
+            epoch_candidates.append(clean_ep)
 
-    # Fallback to raw data if clean metrics is empty or doesn't exist
-    if last_sample_epoch is None:
-        raw_dir = os.path.join(DATA_DIR, 'raw')
-        if os.path.exists(raw_dir):
-            raw_files = sorted(glob.glob(os.path.join(raw_dir, 'metrics_*.csv')))
-            if raw_files:
-                last_sample_epoch = get_last_epoch_from_file(raw_files[-1])
+    raw_dir = os.path.join(DATA_DIR, 'raw')
+    if os.path.exists(raw_dir):
+        raw_files = sorted(glob.glob(os.path.join(raw_dir, 'metrics_*.csv')))
+        if raw_files:
+            raw_ep = get_last_epoch_from_file(raw_files[-1])
+            if raw_ep is not None:
+                epoch_candidates.append(raw_ep)
+
+    last_sample_epoch = max(epoch_candidates) if epoch_candidates else None
 
     return jsonify({
         "server_time_epoch": server_time,
@@ -200,42 +233,51 @@ def get_stats():
 
 # --- Optimized Metrics Endpoint ---
 
+RANGE_SPEC = {
+    '1h': (3600, 5, None),
+    '24h': (86400, 60, '1min'),
+    '7d': (604800, 600, '10min'),
+}
+
 @app.route('/api/metrics', methods=['GET'])
 def get_metrics():
     time_range = request.args.get('range', '1h')
+    if time_range not in RANGE_SPEC:
+        return error_response("range must be one of '1h', '24h', '7d'", 400, field="range")
+
+    window_seconds, step_s, bucket_size = RANGE_SPEC[time_range]
     metrics_path = get_file_path('metrics.csv', 'clean')
 
     if not os.path.exists(metrics_path):
-        return jsonify({"range": time_range, "step_s": 5, "columns": [], "rows": []})
+        return jsonify({"range": time_range, "step_s": step_s, "columns": [], "rows": []})
 
     try:
         df = pd.read_csv(metrics_path)
     except Exception:
-        return jsonify({"range": time_range, "step_s": 5, "columns": [], "rows": []})
+        return jsonify({"range": time_range, "step_s": step_s, "columns": [], "rows": []})
 
+    if df.empty or 'epoch' not in df.columns:
+        return jsonify({"range": time_range, "step_s": step_s, "columns": df.columns.tolist(), "rows": []})
+
+    df = df.copy()
+    df['epoch'] = pd.to_numeric(df['epoch'], errors='coerce')
+    df = df.dropna(subset=['epoch'])
     if df.empty:
-        return jsonify({"range": time_range, "step_s": 5, "columns": df.columns.tolist(), "rows": []})
+        return jsonify({"range": time_range, "step_s": step_s, "columns": df.columns.tolist(), "rows": []})
 
-    latest_epoch = df['epoch'].max()
-
-    # Determine step and window per downsampling 
-    if time_range == '24h':
-        window_seconds = 86400
-        step_s = 60
-        bucket_size = '1min'
-    elif time_range == '7d':
-        window_seconds = 604800
-        step_s = 600
-        bucket_size = '10min'
-    else:  # 1h defaults
-        window_seconds = 3600
-        step_s = 5
-        bucket_size = None
-
+    df['epoch'] = df['epoch'].astype('int64')
+    df = df.sort_values('epoch')
+    latest_epoch = int(df['epoch'].max())
     cutoff_epoch = latest_epoch - window_seconds
-    df = df[df['epoch'] >= cutoff_epoch]
+    df = df[df['epoch'] >= cutoff_epoch].copy()
+
+    int_cols = {'epoch', 'is_filled', 'is_gap', 'is_outlier'}
 
     if bucket_size and not df.empty:
+        for col in df.columns:
+            if col not in ('epoch', 'iso_time'):
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
         df['datetime'] = pd.to_datetime(df['epoch'], unit='s', utc=True)
         df = df.set_index('datetime')
 
@@ -250,19 +292,28 @@ def get_metrics():
                 agg_funcs[col] = 'mean'
 
         df_resampled = df.resample(bucket_size).agg(agg_funcs).dropna(subset=['iso_time'])
-        df_resampled['epoch'] = df_resampled.index.astype('int64') // 10**9
+        epoch_zero = pd.Timestamp('1970-01-01', tz='UTC')
+        df_resampled['epoch'] = (df_resampled.index - epoch_zero).total_seconds().astype('int64')
         df = df_resampled.reset_index(drop=True)
-        
+
         # Reorder columns to match original CSV structure
         df = df[['epoch', 'iso_time'] + [c for c in df.columns if c not in ('epoch', 'iso_time')]]
 
-    # Clean up for JSON serialization
-    df = df.replace({np.nan: None})
     columns = df.columns.tolist()
-    numeric_cols = df.select_dtypes(include=['float64']).columns
-    df[numeric_cols] = df[numeric_cols].round(2)
+    clean_cols = {}
+    for col in columns:
+        if col == 'iso_time':
+            clean_cols[col] = [None if pd.isna(v) else str(v) for v in df[col]]
+        elif col in int_cols:
+            clean_cols[col] = [None if pd.isna(v) else int(v) for v in pd.to_numeric(df[col], errors='coerce')]
+        else:
+            vals = pd.to_numeric(df[col], errors='coerce')
+            clean_cols[col] = [
+                None if (pd.isna(v) or not math.isfinite(float(v))) else round(float(v), 2)
+                for v in vals
+            ]
 
-    rows = df.values.tolist()
+    rows = [list(r) for r in zip(*(clean_cols[c] for c in columns))] if columns else []
     return jsonify({"range": time_range, "step_s": step_s, "columns": columns, "rows": rows})
 
 # --- Alert Endpoints ---
@@ -272,11 +323,11 @@ def get_alerts():
     alerts_path = get_file_path('alerts.csv')
     acks_path = get_file_path('acks.json')
 
-    acks = []
+    acks = set()
     if os.path.exists(acks_path):
         try:
             with open(acks_path, 'r') as f:
-                acks = json.load(f).get('acknowledged_ids', [])
+                acks = set(json.load(f).get('acknowledged_ids', []))
         except Exception:
             pass
 
@@ -286,15 +337,21 @@ def get_alerts():
             with open(alerts_path, 'r') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    alert_id = int(row['id']) if row.get('id') else 0
+                    try:
+                        alert_id = int(row['id']) if row.get('id') else 0
+                        epoch_val = int(row['epoch']) if row.get('epoch') else 0
+                        val = float(row['value']) if row.get('value') not in (None, '') else None
+                        thr = float(row['threshold']) if row.get('threshold') not in (None, '') else None
+                    except (ValueError, TypeError):
+                        continue
                     alerts_list.append({
                         "id": alert_id,
-                        "epoch": int(row['epoch']) if row.get('epoch') else 0,
+                        "epoch": epoch_val,
                         "iso_time": row.get('iso_time', ''),
                         "rule": row.get('rule', ''),
                         "metric": row.get('metric', ''),
-                        "value": float(row['value']) if row.get('value') not in (None, '') else None,
-                        "threshold": float(row['threshold']) if row.get('threshold') not in (None, '') else None,
+                        "value": val,
+                        "threshold": thr,
                         "severity": row.get('severity', ''),
                         "state": row.get('state', ''),
                         "process": row.get('process', ''),
@@ -308,7 +365,17 @@ def get_alerts():
 
 @app.route('/api/alerts/ack', methods=['POST'])
 def ack_alerts():
-    req_data = request.get_json(silent=True) or {}
+    req_data, err = parse_json_object()
+    if err:
+        return err
+
+    if 'all' in req_data and not isinstance(req_data['all'], bool):
+        return error_response("all must be a boolean", 400, field="all")
+    if 'ids' in req_data:
+        ids_val = req_data['ids']
+        if not isinstance(ids_val, list) or not all(is_strict_int(x) for x in ids_val):
+            return error_response("ids must be a list of integers", 400, field="ids")
+
     acks_path = os.path.join(DATA_DIR, 'acks.json')
 
     existing_acks = set()
@@ -332,7 +399,7 @@ def ack_alerts():
                 pass
     elif isinstance(req_data.get('ids'), list):
         for aid in req_data['ids']:
-            if isinstance(aid, int):
+            if is_strict_int(aid):
                 existing_acks.add(aid)
 
     atomic_write_json(acks_path, {"acknowledged_ids": sorted(list(existing_acks))})
@@ -345,10 +412,12 @@ def test_alert():
         return jsonify({"ok": False, "error": "src/alerts.py script not found"}), 500
 
     try:
-        res = subprocess.run(['python3', alerts_script, '--test'], capture_output=True, text=True)
+        res = subprocess.run([sys.executable, alerts_script, '--test'], capture_output=True, text=True, timeout=15)
         if res.returncode == 0:
             return jsonify({"ok": True})
         return jsonify({"ok": False, "error": res.stderr.strip() or "Failed to execute test alert"}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "Test alert timed out"}), 500
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -361,9 +430,13 @@ def start_collector():
         return jsonify({"ok": False, "running": False, "error": "start.sh script not found"}), 500
 
     try:
-        res = subprocess.run(['bash', start_script], capture_output=True, text=True)
-        is_ok = (res.returncode == 0)
-        return jsonify({"ok": is_ok, "running": is_ok})
+        res = subprocess.run(['bash', start_script], capture_output=True, text=True, timeout=15)
+        if res.returncode in (0, 2):
+            return jsonify({"ok": True, "running": True})
+        err_msg = res.stderr.strip() or res.stdout.strip() or "Failed to start collector"
+        return jsonify({"ok": False, "running": False, "error": err_msg}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "running": False, "error": "Collector start timed out"}), 500
     except Exception as e:
         return jsonify({"ok": False, "running": False, "error": str(e)}), 500
 
@@ -374,9 +447,13 @@ def stop_collector():
         return jsonify({"ok": False, "running": False, "error": "stop.sh script not found"}), 500
 
     try:
-        res = subprocess.run(['bash', stop_script], capture_output=True, text=True)
-        is_ok = (res.returncode == 0)
-        return jsonify({"ok": is_ok, "running": not is_ok})
+        res = subprocess.run(['bash', stop_script], capture_output=True, text=True, timeout=15)
+        if res.returncode == 0:
+            return jsonify({"ok": True, "running": False})
+        err_msg = res.stderr.strip() or res.stdout.strip() or "Failed to stop collector"
+        return jsonify({"ok": False, "running": True, "error": err_msg}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "running": True, "error": "Collector stop timed out"}), 500
     except Exception as e:
         return jsonify({"ok": False, "running": True, "error": str(e)}), 500
 
@@ -391,10 +468,12 @@ def run_pipeline_now():
         return jsonify({"ok": False, "error": "Pipeline is already running"}), 400
 
     try:
-        res = subprocess.run(['bash', pipeline_script], capture_output=True, text=True)
+        res = subprocess.run(['bash', pipeline_script], capture_output=True, text=True, timeout=120)
         if res.returncode == 0:
             return jsonify({"ok": True})
         return jsonify({"ok": False, "error": res.stderr.strip() or "Pipeline execution failed"}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "Pipeline execution timed out"}), 500
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
     finally:
@@ -407,6 +486,22 @@ ALLOWED_METRICS = {
     "load1", "cpu_temp_c", "gpu_util_pct", "gpu_mem_used_pct", "gpu_temp_c"
 }
 ALLOWED_OPS = {">", ">=", "<", "<="}
+SYSMON_INT_BOUNDS = {
+    "interval_s": (1, 86400),
+    "pipeline_interval_s": (1, 86400),
+    "gpu_poll_every": (1, 1000),
+}
+METRIC_BOUNDS = {
+    "cpu_pct": (0, 100),
+    "mem_used_pct": (0, 100),
+    "swap_used_pct": (0, 100),
+    "disk_used_pct": (0, 100),
+    "gpu_util_pct": (0, 100),
+    "gpu_mem_used_pct": (0, 100),
+    "load1": (0, 10000),
+    "cpu_temp_c": (-50, 200),
+    "gpu_temp_c": (-50, 200),
+}
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
@@ -422,7 +517,7 @@ def get_config():
     }
 
     if os.path.exists(sysmon_path):
-        cfg = configparser.ConfigParser()
+        cfg = configparser.ConfigParser(interpolation=None)
         cfg.read(sysmon_path)
         if cfg.has_section('sysmon'):
             sec = cfg['sysmon']
@@ -434,7 +529,7 @@ def get_config():
 
     thresholds_data = {}
     if os.path.exists(thresholds_path):
-        cfg = configparser.ConfigParser()
+        cfg = configparser.ConfigParser(interpolation=None)
         cfg.read(thresholds_path)
         for section in cfg.sections():
             sec = cfg[section]
@@ -459,57 +554,63 @@ def get_config():
 
 @app.route('/api/config', methods=['POST'])
 def save_config():
-    payload = request.get_json(silent=True) or {}
+    payload, err = parse_json_object()
+    if err:
+        return err
+
     sysmon_path = os.path.join(CONFIG_DIR, 'sysmon.conf')
     thresholds_path = os.path.join(CONFIG_DIR, 'thresholds.conf')
+    pending_writes = []
 
     if 'sysmon' in payload:
         s_cfg = payload['sysmon']
-        cfg = configparser.ConfigParser()
+        if not isinstance(s_cfg, dict):
+            return error_response("sysmon must be an object", 400, field="sysmon")
+
+        cfg = configparser.ConfigParser(interpolation=None)
         if os.path.exists(sysmon_path):
             cfg.read(sysmon_path)
         if not cfg.has_section('sysmon'):
             cfg.add_section('sysmon')
 
-        if 'interval_s' in s_cfg:
-            val = s_cfg['interval_s']
-            if not isinstance(val, int) or val <= 0:
-                return jsonify({"ok": False, "error": "interval_s must be a positive integer", "field": "sysmon.interval_s"}), 400
-            cfg['sysmon']['interval_s'] = str(val)
+        for key, (lo, hi) in SYSMON_INT_BOUNDS.items():
+            if key in s_cfg:
+                val = s_cfg[key]
+                if not is_strict_int(val) or val < lo or val > hi:
+                    return error_response(f"{key} must be an integer between {lo} and {hi}", 400, field=f"sysmon.{key}")
+                cfg['sysmon'][key] = str(val)
 
-        if 'pipeline_interval_s' in s_cfg:
-            val = s_cfg['pipeline_interval_s']
-            if not isinstance(val, int) or val <= 0:
-                return jsonify({"ok": False, "error": "pipeline_interval_s must be a positive integer", "field": "sysmon.pipeline_interval_s"}), 400
-            cfg['sysmon']['pipeline_interval_s'] = str(val)
+        for key in ('simulate_temp', 'collect_gpu'):
+            if key in s_cfg:
+                val = s_cfg[key]
+                if not isinstance(val, bool):
+                    return error_response(f"{key} must be a boolean", 400, field=f"sysmon.{key}")
+                cfg['sysmon'][key] = str(val).lower()
 
-        if 'simulate_temp' in s_cfg:
-            cfg['sysmon']['simulate_temp'] = str(bool(s_cfg['simulate_temp'])).lower()
-
-        if 'collect_gpu' in s_cfg:
-            cfg['sysmon']['collect_gpu'] = str(bool(s_cfg['collect_gpu'])).lower()
-
-        if 'gpu_poll_every' in s_cfg:
-            val = s_cfg['gpu_poll_every']
-            if not isinstance(val, int) or val <= 0:
-                return jsonify({"ok": False, "error": "gpu_poll_every must be a positive integer", "field": "sysmon.gpu_poll_every"}), 400
-            cfg['sysmon']['gpu_poll_every'] = str(val)
-
-        atomic_write_config(sysmon_path, cfg)
+        pending_writes.append((sysmon_path, cfg))
 
     if 'thresholds' in payload:
         t_cfg = payload['thresholds']
-        cfg = configparser.ConfigParser()
+        if not isinstance(t_cfg, dict):
+            return error_response("thresholds must be an object", 400, field="thresholds")
+
+        cfg = configparser.ConfigParser(interpolation=None)
         if os.path.exists(thresholds_path):
             cfg.read(thresholds_path)
 
         for rule_name, rule_body in t_cfg.items():
+            if not isinstance(rule_name, str) or not rule_name.strip() or rule_name == 'DEFAULT' or any(c in rule_name for c in '[]\r\n'):
+                return error_response("Invalid rule name", 400, field=f"thresholds.{rule_name}")
+
             if rule_body is None:
                 if rule_name == 'no_data':
-                    return jsonify({"ok": False, "error": "no_data rule cannot be deleted", "field": "thresholds.no_data"}), 400
+                    return error_response("no_data rule cannot be deleted", 400, field="thresholds.no_data")
                 if cfg.has_section(rule_name):
                     cfg.remove_section(rule_name)
                 continue
+
+            if not isinstance(rule_body, dict):
+                return error_response("Rule configuration must be an object", 400, field=f"thresholds.{rule_name}")
 
             if not cfg.has_section(rule_name):
                 cfg.add_section(rule_name)
@@ -530,59 +631,68 @@ def save_config():
             if rule_name == 'no_data':
                 if 'max_age_s' in rule_body:
                     val = rule_body['max_age_s']
-                    if not isinstance(val, int) or val <= 0:
-                        return jsonify({"ok": False, "error": "max_age_s must be a positive integer", "field": "thresholds.no_data.max_age_s"}), 400
+                    if not is_strict_int(val) or val < 1 or val > 604800:
+                        return error_response("max_age_s must be an integer between 1 and 604800", 400, field="thresholds.no_data.max_age_s")
                     cfg[rule_name]['max_age_s'] = str(val)
                 if 'severity' in rule_body:
                     if rule_body['severity'] not in ('warning', 'critical'):
-                        return jsonify({"ok": False, "error": "severity must be warning or critical", "field": "thresholds.no_data.severity"}), 400
+                        return error_response("severity must be warning or critical", 400, field="thresholds.no_data.severity")
                     cfg[rule_name]['severity'] = rule_body['severity']
                 if 'enabled' in rule_body:
-                    cfg[rule_name]['enabled'] = str(bool(rule_body['enabled'])).lower()
+                    if not isinstance(rule_body['enabled'], bool):
+                        return error_response("enabled must be a boolean", 400, field="thresholds.no_data.enabled")
+                    cfg[rule_name]['enabled'] = str(rule_body['enabled']).lower()
             else:
                 if 'metric' in rule_body:
                     if rule_body['metric'] not in ALLOWED_METRICS:
-                        return jsonify({"ok": False, "error": f"Invalid metric name '{rule_body['metric']}'", "field": f"thresholds.{rule_name}.metric"}), 400
+                        return error_response(f"Invalid metric name '{rule_body['metric']}'", 400, field=f"thresholds.{rule_name}.metric")
                     cfg[rule_name]['metric'] = rule_body['metric']
 
                 if 'op' in rule_body:
                     if rule_body['op'] not in ALLOWED_OPS:
-                        return jsonify({"ok": False, "error": f"Invalid operator '{rule_body['op']}'", "field": f"thresholds.{rule_name}.op"}), 400
+                        return error_response(f"Invalid operator '{rule_body['op']}'", 400, field=f"thresholds.{rule_name}.op")
                     cfg[rule_name]['op'] = rule_body['op']
 
                 if 'threshold' in rule_body:
                     val = rule_body['threshold']
-                    if not isinstance(val, (int, float)):
-                        return jsonify({"ok": False, "error": "threshold must be a number", "field": f"thresholds.{rule_name}.threshold"}), 400
+                    if not is_strict_number(val):
+                        return error_response("threshold must be a finite number", 400, field=f"thresholds.{rule_name}.threshold")
+                    eff_metric = cfg[rule_name].get('metric', '')
+                    lo, hi = METRIC_BOUNDS.get(eff_metric, (-1e6, 1e6))
+                    if val < lo or val > hi:
+                        return error_response(f"threshold must be between {lo} and {hi}", 400, field=f"thresholds.{rule_name}.threshold")
                     cfg[rule_name]['threshold'] = str(val)
 
-                if 'sustained' in rule_body:
-                    val = rule_body['sustained']
-                    if not isinstance(val, int) or val < 1:
-                        return jsonify({"ok": False, "error": "sustained must be an integer >= 1", "field": f"thresholds.{rule_name}.sustained"}), 400
-                    cfg[rule_name]['sustained'] = str(val)
-
-                if 'cooldown_s' in rule_body:
-                    val = rule_body['cooldown_s']
-                    if not isinstance(val, int) or val < 0:
-                        return jsonify({"ok": False, "error": "cooldown_s must be an integer >= 0", "field": f"thresholds.{rule_name}.cooldown_s"}), 400
-                    cfg[rule_name]['cooldown_s'] = str(val)
+                for key, (lo, hi) in (('sustained', (1, 1000)), ('cooldown_s', (0, 604800))):
+                    if key in rule_body:
+                        val = rule_body[key]
+                        if not is_strict_int(val) or val < lo or val > hi:
+                            return error_response(f"{key} must be an integer between {lo} and {hi}", 400, field=f"thresholds.{rule_name}.{key}")
+                        cfg[rule_name][key] = str(val)
 
                 if 'severity' in rule_body:
                     if rule_body['severity'] not in ('warning', 'critical'):
-                        return jsonify({"ok": False, "error": "severity must be warning or critical", "field": f"thresholds.{rule_name}.severity"}), 400
+                        return error_response("severity must be warning or critical", 400, field=f"thresholds.{rule_name}.severity")
                     cfg[rule_name]['severity'] = rule_body['severity']
 
                 if 'enabled' in rule_body:
-                    cfg[rule_name]['enabled'] = str(bool(rule_body['enabled'])).lower()
+                    if not isinstance(rule_body['enabled'], bool):
+                        return error_response("enabled must be a boolean", 400, field=f"thresholds.{rule_name}.enabled")
+                    cfg[rule_name]['enabled'] = str(rule_body['enabled']).lower()
 
-        atomic_write_config(thresholds_path, cfg)
+        pending_writes.append((thresholds_path, cfg))
+
+    for path, cfg in pending_writes:
+        atomic_write_config(path, cfg)
 
     return jsonify({"ok": True})
 
 @app.route('/api/config/profile', methods=['POST'])
 def set_config_profile():
-    req_data = request.get_json(silent=True) or {}
+    req_data, err = parse_json_object()
+    if err:
+        return err
+
     profile = req_data.get('profile')
 
     if profile not in ('default', 'demo'):
@@ -594,12 +704,14 @@ def set_config_profile():
 
     try:
         res = subprocess.run(
-            ['python3', alerts_script, '--init-defaults', '--profile', profile, '--force'],
-            capture_output=True, text=True
+            [sys.executable, alerts_script, '--init-defaults', '--profile', profile, '--force'],
+            capture_output=True, text=True, timeout=15
         )
         if res.returncode == 0:
             return jsonify({"ok": True})
         return jsonify({"ok": False, "error": res.stderr.strip() or "Failed to apply profile"}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "Applying profile timed out"}), 500
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -612,11 +724,11 @@ def start_pipeline_timer():
             interval_s = 10
             sysmon_path = os.path.join(CONFIG_DIR, 'sysmon.conf')
             if os.path.exists(sysmon_path):
-                cfg = configparser.ConfigParser()
+                cfg = configparser.ConfigParser(interpolation=None)
                 try:
                     cfg.read(sysmon_path)
                     if cfg.has_section('sysmon'):
-                        interval_s = cfg['sysmon'].getint('pipeline_interval_s', fallback=10)
+                        interval_s = max(1, cfg['sysmon'].getint('pipeline_interval_s', fallback=10))
                 except Exception:
                     pass
             
@@ -626,7 +738,7 @@ def start_pipeline_timer():
             if os.path.exists(pipeline_script):
                 if pipeline_lock.acquire(blocking=False):
                     try:
-                        subprocess.run(['bash', pipeline_script], capture_output=True, text=True)
+                        subprocess.run(['bash', pipeline_script], capture_output=True, text=True, timeout=120)
                     except Exception:
                         pass
                     finally:
@@ -639,7 +751,7 @@ if __name__ == '__main__':
     server_port = 5000
     conf_path = os.path.join(CONFIG_DIR, 'sysmon.conf')
     if os.path.exists(conf_path):
-        parser = configparser.ConfigParser()
+        parser = configparser.ConfigParser(interpolation=None)
         try:
             parser.read(conf_path)
             if parser.has_section('sysmon'):
@@ -648,4 +760,4 @@ if __name__ == '__main__':
             pass
 
     start_pipeline_timer()
-    app.run(host='127.0.0.1', port=server_port, debug=True)
+    app.run(host='127.0.0.1', port=server_port, debug=False)
