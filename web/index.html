@@ -146,15 +146,12 @@
                         </div>
                     </div>
 
-                    <div class="bars-wrap">
-                        <div class="bars-y" aria-hidden="true">
-                            <span>100</span><span>75</span><span>50</span><span>25</span><span>0</span>
-                        </div>
-                        <div class="bars" id="performanceChart" role="img" aria-label="Activity chart">
-                            <div class="empty-block">Waiting for monitoring data</div>
-                        </div>
-                        <div class="bars-x" id="chartLabels"></div>
+                    <div class="activity-chart-container">
+                        <canvas id="performanceChartCanvas" aria-label="Real-time activity chart"></canvas>
+                        <div class="empty-block" id="chartEmpty" style="display: none;">Waiting for monitoring data</div>
                     </div>
+                    <div id="performanceChart" style="display: none;" aria-hidden="true"></div>
+                    <div class="bars-x" id="chartLabels" style="display: none;" aria-hidden="true"></div>
                 </article>
             </section>
 
@@ -247,6 +244,7 @@
 
     <div class="toast-container" id="toastContainer" aria-live="polite"></div>
 
+    <script src="static/chart.umd.js"></script>
     <script src="js/common.js"></script>
     <script src="js/app.js"></script>
 </body>
