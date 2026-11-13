@@ -43,12 +43,14 @@ The system operates via a five-stage pipeline:
 ```text
 SSL_Project/
 ├── sysmon                  # One-command launcher (venv setup, config init, Flask server + browser)
+├── run_tests.sh            # Runs full test suite and prints pass/fail summary
 ├── requirements.txt        # Python dependencies (flask, numpy, pandas, pytest)
 ├── bin/
 │   ├── collector.sh        # Background /proc, /sys, process, and GPU metrics collector
 │   ├── start.sh            # Daemonizes collector.sh with PID/lock checks
 │   ├── stop.sh             # Cleanly stops collector.sh
 │   ├── status.sh           # Reports collector running status (exit 0 running / 1 stopped)
+│   ├── stress.sh           # Bounded CPU and memory load generator for demos and testing
 │   ├── run_pipeline.sh     # Runs cleaner -> analyzer -> alerts and updates pipeline_status.json
 │   └── gen_data.py         # Deterministic synthetic CSV generator for testing & demos
 ├── config/
@@ -130,8 +132,11 @@ Once the dashboard opens, use **Start Collector** in the top bar (or run `./bin/
 # Run the cleaning -> analysis -> alerting pipeline once
 ./bin/run_pipeline.sh
 
+# Run demo load generator (CPU + memory load, max 120s)
+./bin/stress.sh [seconds]
+
 # Run the automated test suite
-.venv/bin/pytest -v
+./run_tests.sh          # Full suite runner (or .venv/bin/pytest -v)
 ```
 
 ### Data Retention (Auto-Cleanup)
