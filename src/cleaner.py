@@ -13,8 +13,10 @@ import configparser
 import csv
 import json
 import os
+import re
 import statistics
 import sys
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -408,6 +410,126 @@ def atomic_write_json(report_path: Path, data: Dict[str, object]) -> None:
                 pass
 
 
+RAW_DATED_RE = re.compile(r"^(?:metrics|processes)_(\d{4})(\d{2})(\d{2})\.csv$")
+
+
+def _prune_csv_rows_by_epoch(
+    csv_path: Path, cutoff_epoch: int, delete_if_empty: bool = False
+) -> Tuple[int, bool]:
+    """Filter out rows with epoch < cutoff_epoch from a CSV file.
+
+    Returns (rows_pruned, file_deleted). Never rewrites the file unless
+    at least one row is actually dropped.
+    """
+    if not csv_path.is_file():
+        return 0, False
+
+    with open(csv_path, mode="r", encoding="utf-8", errors="replace", newline="") as f:
+        header = f.readline()
+        if not header:
+            return 0, False
+        cols = [c.strip() for c in header.strip("\r\n").split(",")]
+        try:
+            epoch_idx = cols.index("epoch")
+        except ValueError:
+            return 0, False
+
+        kept_lines: List[str] = []
+        pruned_count = 0
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            parts = line.split(",")
+            if epoch_idx >= len(parts):
+                kept_lines.append(line)
+                continue
+            try:
+                ep = int(float(parts[epoch_idx].strip()))
+            except ValueError:
+                kept_lines.append(line)
+                continue
+            if ep < cutoff_epoch:
+                pruned_count += 1
+            else:
+                kept_lines.append(line if line.endswith("\n") else line + "\n")
+
+    if pruned_count == 0:
+        return 0, False
+
+    if delete_if_empty and not kept_lines:
+        csv_path.unlink()
+        return pruned_count, True
+
+    tmp_path = csv_path.with_name(f".{csv_path.name}.prune.{os.getpid()}")
+    try:
+        with open(tmp_path, mode="w", encoding="utf-8", newline="") as out_f:
+            out_f.write(header if header.endswith("\n") else header + "\n")
+            out_f.writelines(kept_lines)
+        os.replace(tmp_path, csv_path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+    return pruned_count, False
+
+
+def prune_old_data(
+    raw_dir: Path,
+    retention_hours: int,
+    now_epoch: Optional[int] = None,
+    alerts_path: Optional[Path] = None,
+) -> Dict[str, int]:
+    """Delete or trim raw metrics/processes CSVs and alerts older than retention_hours.
+
+    When retention_hours <= 0, auto-deletion is disabled and nothing is modified.
+    """
+    stats = {"files_deleted": 0, "rows_pruned": 0, "alerts_pruned": 0}
+    if retention_hours <= 0:
+        return stats
+
+    now_ts = int(now_epoch if now_epoch is not None else time.time())
+    cutoff_epoch = now_ts - retention_hours * 3600
+    today_str = datetime.fromtimestamp(now_ts, tz=timezone.utc).strftime("%Y%m%d")
+
+    if raw_dir.is_dir():
+        for entry in sorted(raw_dir.iterdir()):
+            if not entry.is_file():
+                continue
+            match = RAW_DATED_RE.match(entry.name)
+            if not match:
+                continue
+            y, m, d = int(match.group(1)), int(match.group(2)), int(match.group(3))
+            file_date_str = f"{y:04d}{m:02d}{d:02d}"
+            try:
+                day_start = int(datetime(y, m, d, 0, 0, 0, tzinfo=timezone.utc).timestamp())
+                day_end = int(datetime(y, m, d, 23, 59, 59, tzinfo=timezone.utc).timestamp())
+            except ValueError:
+                continue
+
+            if day_end < cutoff_epoch:
+                entry.unlink()
+                stats["files_deleted"] += 1
+            elif day_start < cutoff_epoch:
+                pruned, deleted = _prune_csv_rows_by_epoch(
+                    entry, cutoff_epoch, delete_if_empty=(file_date_str < today_str)
+                )
+                stats["rows_pruned"] += pruned
+                if deleted:
+                    stats["files_deleted"] += 1
+
+    if alerts_path is not None and alerts_path.is_file():
+        alerts_pruned, _ = _prune_csv_rows_by_epoch(
+            alerts_path, cutoff_epoch, delete_if_empty=False
+        )
+        stats["alerts_pruned"] = alerts_pruned
+
+    return stats
+
+
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="SysMon raw metrics cleaner")
     parser.add_argument(
@@ -437,6 +559,17 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Optional minimum epoch timestamp for incremental processing",
     )
+    parser.add_argument(
+        "--retention-hours",
+        type=int,
+        default=0,
+        help="Auto-delete raw CSVs and rows older than N hours (0 disables, default: 0)",
+    )
+    parser.add_argument(
+        "--alerts",
+        default=None,
+        help="Optional alerts.csv path to prune expired alert rows alongside raw data",
+    )
     return parser.parse_args(argv)
 
 
@@ -457,6 +590,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not report_path.is_absolute():
             report_path = repo_root / report_path
 
+        prune_stats = None
+        if args.retention_hours > 0:
+            alerts_path = None
+            if args.alerts:
+                alerts_path = Path(args.alerts)
+                if not alerts_path.is_absolute():
+                    alerts_path = repo_root / alerts_path
+            prune_stats = prune_old_data(
+                raw_dir=input_dir,
+                retention_hours=args.retention_hours,
+                alerts_path=alerts_path,
+            )
+
         default_step = read_config_interval(repo_root)
         rows, report = clean_metrics(
             input_dir=input_dir,
@@ -464,6 +610,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             since_epoch=args.since,
         )
         report["engine"] = args.engine
+        if prune_stats is not None:
+            report["retention"] = prune_stats
 
         atomic_write_csv(output_path, rows)
         atomic_write_json(report_path, report)

@@ -5,7 +5,7 @@
  */
 
 const METRICS = Object.keys(METRIC_LABELS);
-const SYSMON_FIELDS = ["interval_s", "pipeline_interval_s", "gpu_poll_every"];
+const SYSMON_FIELDS = ["interval_s", "pipeline_interval_s", "gpu_poll_every", "retention_hours"];
 const SYSMON_TOGGLES = ["collect_gpu", "simulate_temp"];
 
 let loadedConfig = null;     // last config from the server

@@ -60,6 +60,12 @@
                         <div class="hint">Higher values avoid waking a sleeping GPU</div>
                     </div>
                     <div class="field">
+                        <label for="retention_hours">Data retention (hours)</label>
+                        <input class="input" type="number" min="0" max="87600" id="retention_hours"
+                            data-field="sysmon.retention_hours">
+                        <div class="hint">Auto-delete data older than this (0 = keep forever)</div>
+                    </div>
+                    <div class="field">
                         <span class="label">GPU monitoring</span>
                         <label class="switch"><input type="checkbox" id="collect_gpu"
                                 data-field="sysmon.collect_gpu"><span class="track"></span>Collect GPU data</label>

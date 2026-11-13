@@ -81,11 +81,12 @@ if [ ! -f "$SYSMON_CONF" ]; then
 interval_s = 5
 data_dir = data
 top_n = 5
-pipeline_interval_s = 10
+pipeline_interval_s = 30
 port = 5000
 simulate_temp = false
 collect_gpu = true
 gpu_poll_every = 3
+retention_hours = 168
 EOF
 fi
 
