@@ -419,3 +419,59 @@ def test_top_processes():
         assert top_procs[0]["avg_cpu"] == 45.0
         assert top_procs[0]["avg_mem"] == 8.0
         assert top_procs[1]["command"] == "chrome"
+
+
+def test_top_processes_normalization_with_system_info():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_file = os.path.join(tmpdir, "metrics.csv")
+        proc_dir = os.path.join(tmpdir, "raw")
+        os.makedirs(proc_dir, exist_ok=True)
+        output_file = os.path.join(tmpdir, "stats.json")
+        sysinfo_file = os.path.join(tmpdir, "system_info.json")
+
+        with open(sysinfo_file, "w", encoding="utf-8") as f:
+            json.dump({"cpu_cores": 4}, f)
+
+        base_epoch = 1700000000
+        with open(input_file, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(METRICS_HEADER)
+            writer.writerow([
+                str(base_epoch), "2023-11-14T00:00:00Z", "10.0", "40.0", "8000", "0.0",
+                "50.0", "1.0", "1.0", "1.0", "100.0", "50.0", "40.0", "", "", "",
+                "0", "0", "0"
+            ])
+
+        proc_file = os.path.join(proc_dir, "processes_20231114.csv")
+        with open(proc_file, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(PROCESSES_HEADER)
+            # Process using 2 cores out of 4 (200.0% raw ps)
+            writer.writerow([str(base_epoch), "201", "worker", "200.0", "10.0", "1"])
+            # Process using 1 core out of 4 (100.0% raw ps)
+            writer.writerow([str(base_epoch), "202", "web", "100.0", "5.0", "2"])
+
+        cmd = [
+            PYTHON_BIN,
+            os.path.join(REPO_ROOT, "src", "analyzer.py"),
+            "--input", input_file,
+            "--processes-dir", proc_dir,
+            "--output", output_file,
+            "--system-info", sysinfo_file,
+        ]
+        res = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+        assert res.returncode == 0
+
+        with open(output_file, "r") as f:
+            stats = json.load(f)
+
+        top_procs = stats["top_processes"]
+        assert len(top_procs) == 2
+        # worker: 200.0 raw / 4 cores = 50.0% normalized
+        assert top_procs[0]["command"] == "worker"
+        assert top_procs[0]["avg_cpu"] == 200.0
+        assert top_procs[0]["avg_cpu_normalized"] == 50.0
+        # web: 100.0 raw / 4 cores = 25.0% normalized
+        assert top_procs[1]["command"] == "web"
+        assert top_procs[1]["avg_cpu"] == 100.0
+        assert top_procs[1]["avg_cpu_normalized"] == 25.0
