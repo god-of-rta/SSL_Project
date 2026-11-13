@@ -391,6 +391,11 @@ def analyze(
             except Exception:
                 pass
 
+    if cpu_cores <= 1:
+        detected = os.cpu_count()
+        if detected and detected > 1:
+            cpu_cores = detected
+
     # Top processes
     top_processes = compute_top_processes(processes_dir, latest_epoch, cpu_cores=cpu_cores)
 

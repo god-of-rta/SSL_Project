@@ -202,7 +202,18 @@ write_system_info() {
 
     cpu_model="$(awk -F': ' '/^model name/ { gsub(/\r/, "", $2); print $2; exit }' /proc/cpuinfo 2>/dev/null || true)"
     [[ -z "$cpu_model" ]] && cpu_model="$( (uname -p 2>/dev/null || echo "Unknown CPU") | tr -d '\r' )"
-    cpu_cores="$( (nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1) | tr -d '\r' )"
+    local core_count
+    core_count="$(env -u OMP_NUM_THREADS -u OPENBLAS_NUM_THREADS nproc --all 2>/dev/null || true)"
+    if ! [[ "$core_count" =~ ^[0-9]+$ ]] || [[ "$core_count" -le 0 ]]; then
+        core_count="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || true)"
+    fi
+    if ! [[ "$core_count" =~ ^[0-9]+$ ]] || [[ "$core_count" -le 0 ]]; then
+        core_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+    fi
+    if ! [[ "$core_count" =~ ^[0-9]+$ ]] || [[ "$core_count" -le 0 ]]; then
+        core_count=1
+    fi
+    cpu_cores="$core_count"
 
     total_ram_mb="$(awk '/^MemTotal:/ { printf "%d", $2 / 1024 }' /proc/meminfo 2>/dev/null || echo 0)"
     disk_total_gb="$(df -P -k / 2>/dev/null | awk 'NR==2 { printf "%d", $2 / (1024 * 1024) }' || echo 0)"
