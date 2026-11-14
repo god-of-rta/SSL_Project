@@ -12,7 +12,7 @@ explain the code and documents they submitted.
 | Varun | Claude, Antigravity | Architecture planning, interface contracts, data analysis, execution pipeline automation, launcher, LaTex report and slides.
 | Harsha | Gemini, Claude | background collector, control scripts, cross-platform fallbacks, data cleaner, unit tests, LaTeX report & slides | bin/collector.sh, bin/start.sh, bin/stop.sh, bin/status.sh, src/cleaner.py, tests/test_cleaner.py, tests/test_collector.py, report/sections/collector_cleaner.tex, report/sections/slides_collector_cleaner.tex |
 | Prerit | | | |
-| Amogh | | | |
+| Amogh | Gemini, ChatGPT |Code Review, Library use, Tikz diagram adjustment |Server.py - Threading, Subprocess, Config-parser,Safety Checks using is-instance and optimisation of implemented code |
 | Amitha | | | |
 | Amulya | | | |
 
@@ -56,11 +56,27 @@ explain the code and documents they submitted.
 - **What the AI produced vs. what I wrote or changed myself:** 
 - **How I checked it:**
 
-### Amogh 
-- **Tools:** 
-- **What I used AI for:** 
-- **What the AI produced vs. what I wrote or changed myself:** 
+### Amogh
+- **Tools:** ChatGPT, Gemini.
+- **What I used AI for:**
+  - Creating and refining the LaTeX/TikZ diagram showing the backend architecture and communication flow.
+  - Understanding and implementing the use of Python libraries:
+    - `threading` — running the periodic pipeline task in a background thread and using `threading.Lock()` to prevent overlapping pipeline executions.
+    - `subprocess` — executing the predefined shell scripts (`start.sh`, `stop.sh`, `status.sh`, and `run_pipeline.sh`) and the Python alert script from the backend.
+    - `configparser` — reading and updating settings in `sysmon.conf` and `thresholds.conf`.
+  - Improving input validation and safer request handling using `isinstance()` checks, type checks, and value-range validation.
+  - Understanding the purpose and usage of library functions while developing the backend.
+
+- **What the AI produced vs. what I wrote or changed myself:**
+  - AI provided explanations, implementation suggestions, examples, and initial diagram drafts.
+  - I reviewed the suggestions, selected what was relevant to the project, and adapted the code and diagram to match the actual backend.
+  - I changed and integrated the validation logic, script execution flow, configuration handling, and aggregation choices instead of using suggested output without review.
+
 - **How I checked it:**
+  - I read relevant documentation for the Python libraries and functions to understand their purpose, parameters, return values, and behaviour.
+  - I compared the documentation with how each function was used in `server.py` and reviewed the surrounding code before incorporating suggestions.
+  - I compiled the LaTeX source and visually checked the generated diagram and report layout.
+
 
 ### Amitha 
 - **Tools:** 
