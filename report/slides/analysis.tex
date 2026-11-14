@@ -1,0 +1,29 @@
+\section{Statistical Analysis and Pipeline Automation}
+
+\begin{frame}{Statistical Analysis Engine (\texttt{src/analyzer.py})}
+    \begin{itemize}
+        \setlength{\itemsep}{10pt}
+        \item \textbf{Multi-Window Rolling Statistics:} Computes mean, min, max, 95th percentile ($p_{95}$ via linear rank interpolation), and sample standard deviation ($ddof=1$) across 4 windows (\texttt{1h}, \texttt{24h}, \texttt{7d}, \texttt{all}).
+        \item \textbf{Predictive Disk-Full Forecast:} Fits Ordinary Least Squares (OLS) linear regression on root disk percentage over time to compute daily consumption rate ($\Delta\%/\text{day}$) and projected days to 100\% capacity.
+        \item \textbf{Z-Score Anomaly Detection:} Flags operational spikes where $|z| = \frac{|x - \mu|}{\sigma} > 3.0$ standard deviations from the window mean, identifying rare statistical outliers.
+        \item \textbf{Core-Normalized Process Ranking:} Scales raw \texttt{ps} CPU utilization by physical core count ($\min(100.0, \frac{\text{avg\_cpu}}{\text{cpu\_cores}})$), preventing confusing $>1000\%$ readings and matching desktop resource monitors.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Pipeline Runner and Optimization (\texttt{bin/run\_pipeline.sh})}
+    \begin{itemize}
+        \setlength{\itemsep}{10pt}
+        \item \textbf{Sequential Stage Orchestration:} Executes Cleaner $\rightarrow$ Analyzer $\rightarrow$ Alerts in strict sequence, halting immediately if any stage fails to isolate downstream errors.
+        \item \textbf{Smart Change-Detection Caching:} Hashes raw CSV sizes and mtimes in \texttt{.pipeline\_raw\_stamp}; skips cleaner and analyzer when data is static.
+        \item \textbf{Subprocess Thread Pool Clamping:} Explicitly sets \texttt{OPENBLAS\_NUM\_THREADS=1} and \texttt{OMP\_NUM\_THREADS=1} to prevent short Python subprocesses from spawning 32 threads and churning the CPU.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{SysMon Launcher and Real Telemetry Findings}
+    \begin{itemize}
+        \setlength{\itemsep}{10pt}
+        \item \textbf{One-Click System Launcher (\texttt{./sysmon}):} Single root command creates \texttt{.venv}, installs requirements, initializes configs (\texttt{--init-defaults}), starts the server, and automatically opens the browser.
+        \item \textbf{Real Hardware Telemetry Dataset:} Validated against 4,814 clean rows and 23,886 process records collected over 2 days.
+        \item \textbf{Automated Alert Verification:} Alert engine fired warning at 80$^\circ$C and critical at 90$^\circ$C under sustained load, automatically resolving once temperature cooled to 77$^\circ$C.
+    \end{itemize}
+\end{frame}
