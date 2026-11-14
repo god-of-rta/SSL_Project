@@ -148,30 +148,33 @@ function updateCards(data, system) {
 
 
 // --------------------------------------------------
-// ACTIVITY BARS
+// ACTIVITY CHART (Real-Time Chart.js)
 // --------------------------------------------------
 
-function bucketize(values, labelsEpoch, count) {
-    if (values.length <= count) {
-        return values.map((v, i) => ({ value: v, epoch: labelsEpoch[i] }));
-    }
+let liveChart = null;
 
-    const size = values.length / count;
-    const out = [];
-
-    for (let i = 0; i < count; i++) {
-        const start = Math.floor(i * size);
-        const end = Math.max(start + 1, Math.floor((i + 1) * size));
-        const slice = values.slice(start, end).filter((v) => v !== null);
-
-        out.push({
-            value: slice.length ? slice.reduce((a, b) => a + b, 0) / slice.length : null,
-            epoch: labelsEpoch[start]
-        });
-    }
-
-    return out;
+function themeVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
 }
+
+const METRIC_CONFIG = {
+    cpu_pct: {
+        name: "CPU Usage",
+        color: "#2f66f0",
+        rgb: "47, 102, 240"
+    },
+    mem_used_pct: {
+        name: "Memory Usage",
+        color: "#22c55e",
+        rgb: "34, 197, 94"
+    },
+    disk_used_pct: {
+        name: "Disk Usage",
+        color: "#f5a524",
+        rgb: "245, 165, 36"
+    }
+};
 
 function timeLabel(epoch, range) {
     const date = new Date(epoch * 1000);
@@ -181,41 +184,140 @@ function timeLabel(epoch, range) {
 }
 
 function updateChart(data) {
-    const chart = $("performanceChart");
-    const labelsEl = $("chartLabels");
-    const range = $("dashboardRange").value;
-    const name = { cpu_pct: "CPU", mem_used_pct: "Memory", disk_used_pct: "Disk" }[activeMetric];
+    const canvas = $("performanceChartCanvas");
+    const emptyEl = $("chartEmpty");
+    const range = $("dashboardRange") ? $("dashboardRange").value : "1h";
+    const conf = METRIC_CONFIG[activeMetric] || METRIC_CONFIG.cpu_pct;
 
     const values = series(data, activeMetric);
     const epochs = series(data, "epoch");
 
-    if (!values.some((v) => v !== null)) {
-        chart.innerHTML = '<div class="empty-block">No performance history yet. Start the collector to record data.</div>';
-        chart.setAttribute("aria-label", `${name} activity: no data`);
-        labelsEl.innerHTML = "";
+    const hasData = values.some((v) => v !== null && v !== undefined);
+
+    if (!hasData) {
+        if (emptyEl) {
+            emptyEl.style.display = "grid";
+            emptyEl.textContent = "No performance history yet. Start the collector to record data.";
+        }
+        if (liveChart) {
+            liveChart.destroy();
+            liveChart = null;
+        }
         return;
     }
 
-    const buckets = bucketize(values, epochs, 24);
-    const valid = values.filter((v) => v !== null);
-    const average = valid.reduce((a, b) => a + b, 0) / valid.length;
+    if (emptyEl) emptyEl.style.display = "none";
 
-    chart.innerHTML = buckets.map((b) => {
-        if (b.value === null) return '<div class="bar"></div>';
-        const level = b.value >= 90 ? "crit" : b.value >= 75 ? "warn" : "";
-        const height = Math.max(3, Math.min(100, b.value));
-        return `<div class="bar ${level}" title="${escapeHTML(timeLabel(b.epoch, range))}: ${b.value.toFixed(1)}%">` +
-            `<i style="height:${height}%"></i></div>`;
-    }).join("");
+    const labels = epochs.map((ep) => timeLabel(ep, range));
 
-    chart.setAttribute("aria-label",
-        `${name} usage over the ${RANGE_NAMES[range]}, average ${average.toFixed(1)} percent`);
+    if (typeof Chart === "undefined" || !canvas) {
+        if (emptyEl) {
+            emptyEl.style.display = "grid";
+            emptyEl.textContent = "Chart.js unavailable";
+        }
+        return;
+    }
 
-    const picks = 6;
-    labelsEl.innerHTML = Array.from({ length: Math.min(picks, buckets.length) }, (_, i) => {
-        const at = Math.round(i * (buckets.length - 1) / Math.max(1, Math.min(picks, buckets.length) - 1));
-        return `<span>${escapeHTML(timeLabel(buckets[at].epoch, range))}</span>`;
-    }).join("");
+    const ctx = canvas.getContext("2d");
+    const gradient = ctx.createLinearGradient(0, 0, 0, 250);
+    gradient.addColorStop(0, `rgba(${conf.rgb}, 0.35)`);
+    gradient.addColorStop(1, `rgba(${conf.rgb}, 0.02)`);
+
+    const tickColor = themeVar("--chart-tick", "#7d8497");
+    const gridColor = themeVar("--chart-grid", "rgba(240, 241, 245, 0.08)");
+
+    if (liveChart) {
+        liveChart.data.labels = labels;
+        liveChart.data.datasets[0].label = conf.name;
+        liveChart.data.datasets[0].data = values;
+        liveChart.data.datasets[0].borderColor = conf.color;
+        liveChart.data.datasets[0].backgroundColor = gradient;
+        liveChart.data.datasets[0].pointHoverBackgroundColor = conf.color;
+        liveChart.options.scales.x.ticks.color = tickColor;
+        liveChart.options.scales.y.ticks.color = tickColor;
+        liveChart.options.scales.y.grid.color = gridColor;
+        liveChart.update("none");
+    } else {
+        liveChart = new Chart(ctx, {
+            type: "line",
+            data: {
+                labels,
+                datasets: [{
+                    label: conf.name,
+                    data: values,
+                    borderColor: conf.color,
+                    backgroundColor: gradient,
+                    borderWidth: 2.5,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: values.length > 50 ? 0 : 2,
+                    pointHoverRadius: 5,
+                    pointHoverBackgroundColor: conf.color,
+                    pointHoverBorderColor: "#fff",
+                    pointHoverBorderWidth: 2,
+                    spanGaps: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: "index"
+                },
+                animation: {
+                    duration: 350
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: "#0f1218",
+                        padding: 10,
+                        cornerRadius: 10,
+                        titleFont: { family: "Inter, sans-serif", size: 12 },
+                        bodyFont: { family: "Inter, sans-serif", size: 12 },
+                        boxPadding: 4,
+                        callbacks: {
+                            label: (context) => {
+                                const val = context.parsed.y;
+                                return ` ${conf.name}: ${val !== null ? val.toFixed(1) + "%" : "--"}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            maxTicksLimit: 7,
+                            maxRotation: 0,
+                            color: tickColor,
+                            font: { family: "Inter, sans-serif", size: 11 }
+                        },
+                        border: { display: false }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        grid: {
+                            color: gridColor
+                        },
+                        border: { display: false },
+                        ticks: {
+                            color: tickColor,
+                            font: { family: "Inter, sans-serif", size: 11 },
+                            callback: (val) => `${val}%`,
+                            stepSize: 25
+                        }
+                    }
+                }
+            }
+        });
+    }
 }
 
 $("metricSwitch").addEventListener("click", (event) => {
@@ -231,37 +333,42 @@ $("metricSwitch").addEventListener("click", (event) => {
 
 
 // --------------------------------------------------
-// TOP PROCESSES (from /api/stats)
+// TOP PROCESSES (from /api/stats, normalized to total CPU capacity)
 // --------------------------------------------------
 
-function processRows(list) {
+function processRows(list, system = null) {
     if (!list.length) {
         return '<li class="empty-state"><strong>No process data yet</strong>Run the analysis to see the busiest processes.</li>';
     }
 
-    const scale = Math.max(100, ...list.map((p) => num(p.avg_cpu) ?? 0));
+    const cores = Number(system?.cpu_cores) > 0 ? Number(system.cpu_cores) : 1;
 
     return list.map((p) => {
         const name = p.command ?? p.name ?? "unknown";
-        const cpu = num(p.avg_cpu) ?? 0;
+        const rawCpu = num(p.avg_cpu) ?? 0;
+        // Normalize by cpu_cores so usage never crosses 100% and matches Linux Resources app
+        const normalizedCpu = p.avg_cpu_normalized !== undefined && p.avg_cpu_normalized !== null
+            ? Math.min(100, Math.max(0, num(p.avg_cpu_normalized) ?? 0))
+            : Math.min(100, Math.max(0, rawCpu / cores));
         const mem = num(p.avg_mem);
-        const tone = cpu >= 50 ? "hot" : cpu >= 20 ? "mid" : "";
+        const tone = normalizedCpu >= 50 ? "hot" : normalizedCpu >= 20 ? "mid" : "";
+        const titleText = `${normalizedCpu.toFixed(1)}% total CPU${cores > 1 ? ` (${rawCpu.toFixed(1)}% across ${cores} cores)` : ""}`;
 
         return `
-            <li class="rank-row">
+            <li class="rank-row" title="${escapeHTML(titleText)}">
                 <span class="rank-tile" aria-hidden="true">${escapeHTML(String(name).charAt(0))}</span>
                 <div>
                     <span class="rank-name">${escapeHTML(name)}</span>
-                    <div class="rank-track"><i class="${tone}" style="width:${Math.max(2, cpu / scale * 100)}%"></i></div>
+                    <div class="rank-track"><i class="${tone}" style="width:${Math.max(2, Math.min(100, normalizedCpu))}%"></i></div>
                 </div>
-                <span class="rank-value"><strong>${cpu.toFixed(1)}%</strong> CPU${mem === null ? "" : `<br>${mem.toFixed(1)}% mem`}</span>
+                <span class="rank-value"><strong>${normalizedCpu.toFixed(1)}%</strong> CPU${mem === null ? "" : `<br>${mem.toFixed(1)}% mem`}</span>
             </li>`;
     }).join("");
 }
 
-function updateProcesses(stats) {
+function updateProcesses(stats, system = null) {
     const list = Array.isArray(stats?.top_processes) ? stats.top_processes.slice(0, 5) : [];
-    $("topProcesses").innerHTML = processRows(list);
+    $("topProcesses").innerHTML = processRows(list, system);
 }
 
 
@@ -364,6 +471,14 @@ async function loadDashboard() {
         $("healthStatus").innerHTML = `
             <span class="health-status-dot" style="background:#f0476b;box-shadow:0 0 0 5px #f0476b26"></span>
             <div><strong>Backend unavailable</strong><small>Start the Flask server, then refresh</small></div>`;
+        if ($("chartEmpty")) {
+            $("chartEmpty").style.display = "grid";
+            $("chartEmpty").textContent = "Connect the backend to see activity.";
+        }
+        if (liveChart) {
+            liveChart.destroy();
+            liveChart = null;
+        }
         $("performanceChart").innerHTML = '<div class="empty-block">Connect the backend to see activity.</div>';
         $("chartLabels").innerHTML = "";
         console.error("Dashboard refresh failed:", results[0].reason);
@@ -381,7 +496,7 @@ async function loadDashboard() {
         updateChart(metrics);
     }
 
-    if (stats) updateProcesses(stats);
+    if (stats) updateProcesses(stats, system);
 
     refreshAlerts();
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-src/cleaner.py - SysMon plain-Python data cleaner (Task P2-6).
+src/cleaner.py - SysMon data cleaner.
 
 Reads raw metrics CSV files, validates ranges, deduplicates and sorts by epoch,
 forward-fills short gaps (<= 3 samples), flags long gaps (> 3 samples), flags

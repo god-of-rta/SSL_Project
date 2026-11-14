@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tests/test_cleaner.py - Unit tests for src/cleaner.py (Task P2-7).
+tests/test_cleaner.py - Unit tests for src/cleaner.py.
 
 Covers:
 1. Exact and timestamp duplicates removal
@@ -223,7 +223,7 @@ class TestCleaner(unittest.TestCase):
         self.assertEqual(report["filled"], 0)
         self.assertEqual(report["gaps"], 0)
 
-    def test_p5_fixture_if_present(self) -> None:
+    def test_fixture_if_present(self) -> None:
         """If tests/fixtures/raw_metrics.csv exists, verify cleaner processes it cleanly."""
         fixture_file = REPO_ROOT / "tests" / "fixtures" / "raw_metrics.csv"
         if not fixture_file.is_file():

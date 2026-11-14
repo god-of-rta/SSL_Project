@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SysMon Analyzer Module (P1: Integrator + Analysis).
+"""SysMon Analyzer Module
 
 Reads cleaned metrics CSV and process logs, calculates summary statistics across
 time windows (1h, 24h, 7d, all), computes hourly averages, ranks top processes,
@@ -160,8 +160,13 @@ def compute_top_processes(
     latest_epoch: Optional[int],
     window_s: int = 3600,
     top_n: int = 5,
+    cpu_cores: int = 1,
 ) -> List[Dict[str, Any]]:
-    """Compute top processes by average CPU and memory over recent window."""
+    """Compute top processes by average CPU and memory over recent window.
+    
+    Includes avg_cpu (raw ps average) and avg_cpu_normalized (scaled to total
+    system capacity across cores, matching desktop system monitors like Resources).
+    """
     if not os.path.isdir(processes_dir):
         return []
 
@@ -201,12 +206,15 @@ def compute_top_processes(
         return []
 
     summaries = []
+    cores = cpu_cores if (isinstance(cpu_cores, (int, float)) and cpu_cores > 0) else 1
     for cmd, samples in records_by_command.items():
         avg_cpu = round(sum(s[0] for s in samples) / len(samples), 2)
         avg_mem = round(sum(s[1] for s in samples) / len(samples), 2)
+        avg_cpu_normalized = round(min(100.0, avg_cpu / cores), 2)
         summaries.append({
             "command": cmd,
             "avg_cpu": avg_cpu,
+            "avg_cpu_normalized": avg_cpu_normalized,
             "avg_mem": avg_mem,
         })
 
@@ -220,6 +228,7 @@ def analyze(
     processes_dir: str,
     output_path: str,
     since_epoch: Optional[int] = None,
+    system_info_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute analysis pipeline and write stats.json atomically."""
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -360,8 +369,35 @@ def analyze(
         ]
     anomalies = compute_anomalies(full_metric_series)
 
+    # Resolve cpu_cores from system_info.json if available
+    cpu_cores = 1
+    candidates = []
+    if system_info_path:
+        candidates.append(system_info_path)
+    candidates.extend([
+        os.path.join(os.path.dirname(os.path.abspath(output_path)), "system_info.json"),
+        os.path.join(os.path.dirname(os.path.abspath(processes_dir)), "system_info.json"),
+        os.path.join("data", "system_info.json"),
+    ])
+    for cand in candidates:
+        if os.path.isfile(cand):
+            try:
+                with open(cand, "r", encoding="utf-8") as f:
+                    info = json.load(f)
+                    cores = info.get("cpu_cores")
+                    if isinstance(cores, (int, float)) and cores > 0:
+                        cpu_cores = int(cores)
+                        break
+            except Exception:
+                pass
+
+    if cpu_cores <= 1:
+        detected = os.cpu_count()
+        if detected and detected > 1:
+            cpu_cores = detected
+
     # Top processes
-    top_processes = compute_top_processes(processes_dir, latest_epoch)
+    top_processes = compute_top_processes(processes_dir, latest_epoch, cpu_cores=cpu_cores)
 
     stats_output: Dict[str, Any] = {
         "generated_at": generated_at,
@@ -403,8 +439,8 @@ def write_atomic_json(data: Dict[str, Any], target_path: str) -> None:
 
 
 def main() -> None:
-    """CLI entrypoint conforming to INTERFACES.md section 8."""
-    parser = argparse.ArgumentParser(description="SysMon Analyzer (P1)")
+    """CLI entrypoint for analyzer."""
+    parser = argparse.ArgumentParser(description="SysMon Analyzer")
     parser.add_argument(
         "--input",
         default="data/clean/metrics.csv",
@@ -426,6 +462,11 @@ def main() -> None:
         default=None,
         help="Optional epoch timestamp to process data incrementally",
     )
+    parser.add_argument(
+        "--system-info",
+        default=None,
+        help="Optional path to system_info.json for core normalization",
+    )
 
     args = parser.parse_args()
 
@@ -435,6 +476,7 @@ def main() -> None:
             processes_dir=args.processes_dir,
             output_path=args.output,
             since_epoch=args.since,
+            system_info_path=args.system_info,
         )
         sys.exit(0)
     except Exception as e:

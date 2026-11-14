@@ -1,4 +1,4 @@
-"""Tests for run_pipeline.sh and sysmon launcher (P1)."""
+"""Tests for run_pipeline.sh and sysmon launcher."""
 
 import json
 import os

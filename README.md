@@ -119,7 +119,7 @@ Useful launcher flags:
 ./sysmon --help            # Show CLI options
 ```
 
-Once the dashboard opens, use **Start Collector** in the top bar (or run `./bin/start.sh` manually) to begin recording telemetry.
+Once the dashboard opens, use **Start Collector** in the top bar.
 
 ### Manual Component Commands
 
@@ -145,20 +145,6 @@ To prevent unbounded disk growth during long monitoring sessions, `config/sysmon
 
 ---
 
-## 🌿 Git & Contribution Guidelines
-
-- **Protected Main Branch:** All work must be conducted on feature branches (`feature/<name>` or `fix/<name>`). No direct pushes to `main`.
-- **Review Requirement:** Every pull request requires review and approval before merging.
-- **Commit Conventions:** Use standard conventional commit prefixes:
-  - `feat:` for new capabilities
-  - `fix:` for bug fixes
-  - `test:` for test fixtures and scripts
-  - `docs:` for documentation updates
-  - `refactor:` for code reorganization
-- **Clean Commits:** Do not commit raw runtime data (`data/`), virtual environments (`.venv/`), or sensitive API/email tokens.
-
----
-
 ## 📄 License & Academic Integrity
 
-This project is developed for the **Unix Tools / System Software Laboratory (SSL)** coursework.
+This project is developed for the **Software Systems Laboratory (SSL)** coursework.

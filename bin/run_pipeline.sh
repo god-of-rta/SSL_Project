@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SysMon Pipeline Runner (P1: Integrator + Analysis)
+# SysMon Pipeline Runner
 # Runs cleaner, analyzer, alerts in order.
 # Stops at the first failure, logs to data/pipeline.log,
 # and atomically writes data/pipeline_status.json.

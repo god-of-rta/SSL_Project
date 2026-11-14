@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/stress.sh - bounded CPU + memory load to trigger alerts in the demo (owner: P5)
+# bin/stress.sh - bounded CPU + memory load generator
 #
 # Usage: bin/stress.sh [seconds]     (default 30, hard maximum 120)
 #

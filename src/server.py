@@ -220,7 +220,13 @@ def get_system():
     if os.path.exists(sys_info_path):
         try:
             with open(sys_info_path, 'r') as f:
-                return jsonify(json.load(f))
+                data = json.load(f)
+                cores = data.get('cpu_cores')
+                if not cores or cores <= 1:
+                    real_cores = os.cpu_count()
+                    if real_cores and real_cores > 1:
+                        data['cpu_cores'] = real_cores
+                return jsonify(data)
         except Exception:
             pass
     return jsonify({})
@@ -273,6 +279,31 @@ def get_metrics():
     df['epoch'] = df['epoch'].astype('int64')
     df = df.sort_values('epoch')
     latest_epoch = int(df['epoch'].max())
+
+    # For range=1h (live dashboard window), seamlessly append any fresh raw samples
+    # written by the collector that have not yet been processed by the background cleaner.
+    if time_range == '1h':
+        raw_dir = os.path.join(DATA_DIR, 'raw')
+        if os.path.isdir(raw_dir):
+            raw_files = sorted(glob.glob(os.path.join(raw_dir, 'metrics_*.csv')))
+            if raw_files:
+                try:
+                    raw_df = pd.read_csv(raw_files[-1])
+                    if not raw_df.empty and 'epoch' in raw_df.columns:
+                        raw_df['epoch'] = pd.to_numeric(raw_df['epoch'], errors='coerce')
+                        raw_df = raw_df.dropna(subset=['epoch'])
+                        raw_df['epoch'] = raw_df['epoch'].astype('int64')
+                        new_raw = raw_df[raw_df['epoch'] > latest_epoch].copy()
+                        if not new_raw.empty:
+                            for flag_col in ('is_filled', 'is_gap', 'is_outlier'):
+                                if flag_col not in new_raw.columns:
+                                    new_raw[flag_col] = 0
+                            df = pd.concat([df, new_raw], ignore_index=True)
+                            df = df.sort_values('epoch')
+                            latest_epoch = int(df['epoch'].max())
+                except Exception:
+                    pass
+
     cutoff_epoch = latest_epoch - window_seconds
     df = df[df['epoch'] >= cutoff_epoch].copy()
 

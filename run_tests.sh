@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run_tests.sh - run every unit test and shell test, print a summary (owner: P5)
+# run_tests.sh - run test suite and print a pass/fail summary
 # Usage: ./run_tests.sh        Exit code 0 only if everything passes.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
