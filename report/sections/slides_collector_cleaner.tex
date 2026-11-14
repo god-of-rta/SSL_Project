@@ -1,61 +1,60 @@
 % Beamer Presentation Frames for P2 (Collector + Cleaner)
 % Ready for inclusion into report/slides.tex via \input{sections/slides_collector_cleaner.tex}
 
-\begin{frame}{Telemetry Collection Daemon (\texttt{collector.sh})}
+\begin{frame}{System Telemetry Collector (\texttt{bin/collector.sh})}{P2: Harsha --- Telemetry Collection \& Daemon Management}
 \begin{columns}[T]
-\begin{column}{0.52\textwidth}
-\textbf{Low-Overhead Architecture:}
+\begin{column}{0.50\textwidth}
+\textbf{Lightweight Data Gathering:}
 \begin{itemize}
-    \item Direct interrogation of \texttt{/proc} and \texttt{/sys} using Bash builtins and \texttt{awk}; zero dependency on heavy tools (\texttt{top}).
-    \item \textbf{Exact Kernel Math}: Jiffies delta for CPU\%, \texttt{MemAvailable} for accurate RAM usage, and non-loopback network byte rates.
-    \item \textbf{Power-Aware GPU Polling}: Inspects PCI \texttt{runtime\_status}; skips polling if dGPU is in RTD3 sleep to save battery.
-    \item \textbf{Process Accounting}: Prevents column shifts by placing \texttt{comm} last; filters transient sub-2s newborn spikes.
+    \item \textbf{Low Overhead}: Reads directly from system files (\texttt{/proc}, \texttt{/sys}) instead of heavy utilities (uses $<0.05\%$ CPU).
+    \item \textbf{16 Key Metrics}: Accurate CPU usage deltas, true available memory, disk space, network speeds, and temperature.
+    \item \textbf{Smart GPU Monitoring}: Checks power state first; skips polling when dedicated graphics card is asleep to save battery.
+    \item \textbf{Process Tracking}: Records top 5 CPU processes while filtering brief startup glitches.
 \end{itemize}
 \end{column}
 
-\begin{column}{0.45\textwidth}
-\textbf{Lifecycle Management:}
+\begin{column}{0.48\textwidth}
+\textbf{Reliable Daemon Lifecycle:}
 \begin{itemize}
-    \item \texttt{bin/start.sh}, \texttt{stop.sh}, \texttt{status.sh}.
-    \item Exclusive lock via \texttt{flock} (PID fallback on Git Bash/MSYS2).
-    \item Stale PID recovery by validating \texttt{/proc/\$PID/cmdline}.
-    \item Clean signal trapping (\texttt{SIGTERM}/\texttt{SIGINT}) to flush buffers and remove lock files.
+    \item \textbf{Simple Controls}: Run in background via \texttt{start.sh}, \texttt{stop.sh}, and \texttt{status.sh}.
+    \item \textbf{Single-Instance Lock}: Prevents duplicate collectors from running at the same time.
+    \item \textbf{Clean Shutdown}: Gracefully flushes and closes data files upon stopping.
 \end{itemize}
 
-\vspace{0.3em}
+\vspace{0.4em}
 \begin{block}{Interface Contract}
-Emits 16-column daily CSVs and atomic \texttt{system\_info.json}.
+Generates daily 16-column CSV files and hardware summary (\texttt{system\_info.json}).
 \end{block}
 \end{column}
 \end{columns}
 \end{frame}
 
-\begin{frame}{Data Cleaning \& Imputation Pipeline (\texttt{cleaner.py})}
+\begin{frame}{Data Cleaning Pipeline (\texttt{src/cleaner.py})}{P2: Harsha --- Data Quality, Imputation \& Retention}
 \begin{columns}[T]
-\begin{column}{0.52\textwidth}
-\textbf{Sanitization Pipeline:}
+\begin{column}{0.50\textwidth}
+\textbf{Automated Data Sanitization:}
 \begin{itemize}
-    \item \textbf{Validation}: Bounds checks ($0 \le \% \le 100$, $0 \le T \le 120^\circ\text{C}$, rates $\ge 0$). Corrupt rows counted and dropped.
-    \item \textbf{Sorting \& Deduplication}: Resolves out-of-order writes and identical timestamp collisions.
-    \item \textbf{Dual Gap Strategy}:
+    \item \textbf{Validation}: Checks realistic ranges (0--100\%, temperatures $\le 120^\circ\text{C}$); counts and removes corrupted rows.
+    \item \textbf{Sorting \& Deduplication}: Organizes records by timestamp and discards accidental duplicates.
+    \item \textbf{Handling Missing Data}:
     \begin{itemize}
-        \item Short gaps ($k \le 3$): Forward-fill state ($\text{is\_filled} = 1$).
-        \item Long gaps ($k > 3$): Downtime flag ($\text{is\_gap} = 1$, no invented data).
+        \item \emph{Short pauses ($1$--$3$ cycles)}: Forward-fills prior values to keep graphs smooth.
+        \item \emph{Long gaps ($>3$ cycles)}: Flags system sleep or downtime without creating fake data.
     \end{itemize}
 \end{itemize}
 \end{column}
 
-\begin{column}{0.45\textwidth}
-\textbf{Preserving Real Spikes:}
+\begin{column}{0.48\textwidth}
+\textbf{Spike Protection \& Maintenance:}
 \begin{itemize}
-    \item Rolling-median statistical window.
-    \item Flags genuine load spikes ($\text{is\_outlier} = 1$) without dropping them, ensuring the alert engine catches critical events.
-    \item \textbf{Retention Pruning}: Automatically prunes files and alerts older than \texttt{retention\_hours} (7-day default).
+    \item \textbf{Highlights Sudden Spikes}: Flags unusual jumps using a rolling-median window.
+    \item \textbf{Never Deletes Spikes}: Keeps real high-load spikes intact so the Alert Engine can detect issues!
+    \item \textbf{Automatic Disk Cleanup}: Deletes data older than 7 days (\texttt{retention\_hours}) to prevent full disks.
 \end{itemize}
 
-\vspace{0.3em}
+\vspace{0.4em}
 \begin{block}{Verification}
-$100\%$ pass rate across \texttt{test\_collector.py} and \texttt{test\_cleaner.py}.
+$100\%$ automated test pass rate (\texttt{test\_collector.py} \& \texttt{test\_cleaner.py}).
 \end{block}
 \end{column}
 \end{columns}
