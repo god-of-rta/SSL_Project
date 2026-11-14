@@ -1,0 +1,62 @@
+% Beamer Presentation Frames for P2 (Collector + Cleaner)
+% Ready for inclusion into report/slides.tex via \input{sections/slides_collector_cleaner.tex}
+
+\begin{frame}{Telemetry Collection Daemon (\texttt{collector.sh})}
+\begin{columns}[T]
+\begin{column}{0.52\textwidth}
+\textbf{Low-Overhead Architecture:}
+\begin{itemize}
+    \item Direct interrogation of \texttt{/proc} and \texttt{/sys} using Bash builtins and \texttt{awk}; zero dependency on heavy tools (\texttt{top}).
+    \item \textbf{Exact Kernel Math}: Jiffies delta for CPU\%, \texttt{MemAvailable} for accurate RAM usage, and non-loopback network byte rates.
+    \item \textbf{Power-Aware GPU Polling}: Inspects PCI \texttt{runtime\_status}; skips polling if dGPU is in RTD3 sleep to save battery.
+    \item \textbf{Process Accounting}: Prevents column shifts by placing \texttt{comm} last; filters transient sub-2s newborn spikes.
+\end{itemize}
+\end{column}
+
+\begin{column}{0.45\textwidth}
+\textbf{Lifecycle Management:}
+\begin{itemize}
+    \item \texttt{bin/start.sh}, \texttt{stop.sh}, \texttt{status.sh}.
+    \item Exclusive lock via \texttt{flock} (PID fallback on Git Bash/MSYS2).
+    \item Stale PID recovery by validating \texttt{/proc/\$PID/cmdline}.
+    \item Clean signal trapping (\texttt{SIGTERM}/\texttt{SIGINT}) to flush buffers and remove lock files.
+\end{itemize}
+
+\vspace{0.3em}
+\begin{block}{Interface Contract}
+Emits 16-column daily CSVs and atomic \texttt{system\_info.json}.
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Data Cleaning \& Imputation Pipeline (\texttt{cleaner.py})}
+\begin{columns}[T]
+\begin{column}{0.52\textwidth}
+\textbf{Sanitization Pipeline:}
+\begin{itemize}
+    \item \textbf{Validation}: Bounds checks ($0 \le \% \le 100$, $0 \le T \le 120^\circ\text{C}$, rates $\ge 0$). Corrupt rows counted and dropped.
+    \item \textbf{Sorting \& Deduplication}: Resolves out-of-order writes and identical timestamp collisions.
+    \item \textbf{Dual Gap Strategy}:
+    \begin{itemize}
+        \item Short gaps ($k \le 3$): Forward-fill state ($\text{is\_filled} = 1$).
+        \item Long gaps ($k > 3$): Downtime flag ($\text{is\_gap} = 1$, no invented data).
+    \end{itemize}
+\end{itemize}
+\end{column}
+
+\begin{column}{0.45\textwidth}
+\textbf{Preserving Real Spikes:}
+\begin{itemize}
+    \item Rolling-median statistical window.
+    \item Flags genuine load spikes ($\text{is\_outlier} = 1$) without dropping them, ensuring the alert engine catches critical events.
+    \item \textbf{Retention Pruning}: Automatically prunes files and alerts older than \texttt{retention\_hours} (7-day default).
+\end{itemize}
+
+\vspace{0.3em}
+\begin{block}{Verification}
+$100\%$ pass rate across \texttt{test\_collector.py} and \texttt{test\_cleaner.py}.
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}

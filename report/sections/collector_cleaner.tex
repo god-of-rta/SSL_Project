@@ -1,0 +1,130 @@
+\section{Telemetry Collection and Data Cleaning Pipeline}
+\label{sec:collector_cleaner}
+
+\subsection{Overview and Architectural Responsibility}
+In the SysMon architecture, \textbf{Person 2 (P2)} owns the initial two stages of the data acquisition and preparation pipeline:
+\begin{enumerate}
+    \item \textbf{Low-Overhead Telemetry Collection (\texttt{bin/collector.sh})}: A daemonized POSIX Bash script continuously gathering hardware, kernel, network, thermal, process, and GPU telemetry without user intervention.
+    \item \textbf{Daemon Lifecycle Management (\texttt{bin/start.sh}, \texttt{stop.sh}, \texttt{status.sh})}: Robust process management scripts enforcing single-instance execution, concurrency locking, and signal handling.
+    \item \textbf{Data Cleaning and Preprocessing (\texttt{src/cleaner.py})}: A pure-Python engine responsible for validation, deduplication, temporal alignment, missing-sample interpolation, outlier flagging, and retention pruning.
+\end{enumerate}
+
+The design principle governing these components is \textbf{zero-overhead non-intrusiveness}: telemetry collection must not perturb the performance metrics being measured, and data cleaning must strictly preserve genuine anomalous spikes for the downstream alert engine while sanitizing sensor noise and transient hardware dropouts.
+
+\subsection{Low-Overhead Telemetry Collection (\texttt{collector.sh})}
+Conventional system monitoring utilities frequently rely on heavy userspace tools such as \texttt{top}, \texttt{vmstat}, or repeatedly spawned external subshells. Spawning subprocesses every sample interval introduces significant CPU wakeups, context switching, and memory churn. To minimize overhead, \texttt{collector.sh} directly interrogates the Linux pseudo-filesystems (\texttt{/proc} and \texttt{/sys}) via lightweight built-in shell primitives and streamlined \texttt{awk} programs.
+
+\subsubsection{Mathematical Formulations for Kernel Telemetry}
+\paragraph{CPU Utilization Delta:}
+Kernel CPU counters in \texttt{/proc/stat} represent cumulative jiffies across execution states: $\text{user}$, $\text{nice}$, $\text{system}$, $\text{idle}$, $\text{iowait}$, $\text{irq}$, $\text{softirq}$, and $\text{steal}$. At consecutive sampling epochs $t_1$ and $t_2$, total ticks $T$ and idle ticks $I$ are computed:
+\begin{align}
+    T &= \text{user} + \text{nice} + \text{system} + \text{idle} + \text{iowait} + \text{irq} + \text{softirq} + \text{steal} \\
+    I &= \text{idle} + \text{iowait}
+\end{align}
+The busy percentage is calculated over the delta interval:
+\begin{equation}
+    \Delta T = T_2 - T_1, \quad \Delta I = I_2 - I_1, \quad \text{CPU}_{\%} = 
+    \begin{cases} 
+        \frac{\Delta T - \Delta I}{\Delta T} \times 100\%, & \text{if } \Delta T > 0 \\ 
+        0.0\%, & \text{otherwise} 
+    \end{cases}
+\end{equation}
+
+\paragraph{Memory and Swap Utilization:}
+Rather than naively computing used memory as $\text{MemTotal} - \text{MemFree}$, \texttt{collector.sh} adheres to modern Linux kernel semantics by evaluating true available memory:
+\begin{equation}
+    \text{MemUsed}_{\%} = \frac{\text{MemTotal} - \text{MemAvailable}}{\text{MemTotal}} \times 100\%
+\end{equation}
+When \texttt{MemAvailable} is absent on older kernels, the collector falls back to $\text{MemFree} + \text{Buffers} + \text{Cached}$. Swap utilization is derived symmetrically from $\text{SwapTotal}$ and $\text{SwapFree}$.
+
+\paragraph{Network Bandwidth Rate:}
+The network rate sums transferred bytes across all active network interfaces in \texttt{/proc/net/dev}, deliberately excluding the loopback interface (\texttt{lo}). For byte deltas $\Delta B_{\text{rx}}$ and $\Delta B_{\text{tx}}$ over real time elapsed $\Delta t = t_2 - t_1$:
+\begin{equation}
+    R_{\text{rx}} = \frac{\Delta B_{\text{rx}} \times 8}{1000 \times \Delta t} \quad (\text{kbps}), \qquad R_{\text{tx}} = \frac{\Delta B_{\text{tx}} \times 8}{1000 \times \Delta t} \quad (\text{kbps})
+\end{equation}
+
+\paragraph{Thermal Acquisition and Simulation:}
+The collector iterates over all thermal zones exposed under \texttt{/sys/class/thermal/thermal\_zone*/temp}, selecting the maximum reading across cores. Temperatures $>1000$ are scaled to Celsius ($T/1000$). If thermal zones are inaccessible (e.g., virtual machines or container environments), the collector attempts a fallback to \texttt{sensors}. For reproducible demonstrations across heterogeneous student laptops, a deterministic simulation flag (\texttt{--simulate-temp}) provides realistic values modeled as:
+\begin{equation}
+    T_{\text{sim}} = 42.0 + 0.42 \times \text{CPU}_{\%} + \epsilon, \quad \epsilon \sim \text{Uniform}(-1.5, 1.5)^\circ\text{C}, \quad T_{\text{sim}} \in [35.0, 98.0]^\circ\text{C}
+\end{equation}
+
+\subsubsection{Power-Aware Discrete GPU Polling}
+Modern laptops with hybrid graphics (NVIDIA Optimus / AMD Prime) place the discrete GPU into deep runtime sleep (PCI RTD3 / \texttt{suspended} power state). Naively invoking \texttt{nvidia-smi} every 5 seconds forces the PCIe bus and GPU die to wake up, causing unneeded battery drain and thermal spikes. 
+
+To prevent this:
+\begin{enumerate}
+    \item \textbf{PCI Runtime Power Inspection}: The collector scans \texttt{/sys/bus/pci/devices/*/power/runtime\_status} for vendor ID \texttt{0x10de}. If the state is \texttt{suspended}, the collector skips \texttt{nvidia-smi} execution entirely and emits empty CSV fields (\texttt{",,"}).
+    \item \textbf{Throttled Polling Frequency}: When the GPU is active, telemetry is polled once every $N$ samples (\texttt{gpu\_poll\_every = 3}, default 15s) rather than every basic tick.
+    \item \textbf{Direct \texttt{/proc} Model Extraction}: Model names are read directly from \texttt{/proc/driver/nvidia/gpus/*/information} without invoking heavy binaries.
+\end{enumerate}
+
+\subsubsection{Process Telemetry and Transient Spike Mitigation}
+Top process tracking records the top 5 CPU consumers into daily rotating CSV files (\texttt{processes\_YYYYMMDD.csv}). Two critical engineering issues were solved in the collector:
+\begin{itemize}
+    \item \textbf{Column-Shift Immunity}: Command names containing spaces or hyphens (such as \texttt{mt76-tx phy0} or \texttt{UVM global queu}) previously caused whitespace-separated field shifting. The collector invokes \texttt{ps -eo pid=,\%cpu=,\%mem=,etimes=,comm=} with \texttt{comm} positioned strictly at the end, concatenating all trailing tokens into a single normalized underscore-delimited identifier.
+    \item \textbf{Birth-Quantization Filtering}: In Linux, when a short-lived process spawns immediately prior to a \texttt{ps} sample, dividing initial accumulated CPU ticks by a fraction of a second results in erroneous spikes ranging from $300\%$ to $4000\%$. The collector filters out both \texttt{ps} itself and transient processes with elapsed runtime $\text{etimes} < 2\,\text{s}$.
+\end{itemize}
+
+\subsection{Daemon Lifecycle Management (\texttt{start.sh}, \texttt{stop.sh}, \texttt{status.sh})}
+The collector daemon must operate reliably under automated control from the Flask backend and CLI launcher. The lifecycle scripts implement strict POSIX compliance and standard exit codes:
+\begin{itemize}
+    \item \textbf{\texttt{bin/start.sh}}: Verifies whether an instance is already running via \texttt{status.sh} (exiting with code \texttt{2} if active). Spawns \texttt{collector.sh} detached via \texttt{nohup}, records the child PID in \texttt{data/collector.pid}, and sleeps 400\,ms to verify successful initialization.
+    \item \textbf{\texttt{bin/status.sh}}: Returns exit code \texttt{0} if running, \texttt{1} if stopped. It guards against stale PID files by testing \texttt{kill -0 \$PID} and validating that \texttt{/proc/\$PID/cmdline} matches \texttt{collector.sh} or \texttt{bash}, preventing false positives from recycled OS PIDs.
+    \item \textbf{\texttt{bin/stop.sh}}: Issues \texttt{SIGTERM} to the recorded PID, allowing the collector's \texttt{trap} handler to flush output buffers, unlink lock files, and terminate cleanly. If the process does not terminate within 5 seconds, a fallback \texttt{SIGKILL} is dispatched.
+    \item \textbf{Atomic Concurrency Locking}: Linux deployments acquire an exclusive, non-blocking lock on file descriptor 9 using \texttt{flock -n 9}. On MSYS2 / Git Bash environments lacking \texttt{flock}, an atomic PID-validated file lock ensures mutual exclusion.
+\end{itemize}
+
+\subsection{Data Cleaning Pipeline (\texttt{src/cleaner.py})}
+The raw CSV telemetry files contain inevitable operational imperfections: non-monotonic timestamps from clock adjustments, duplicate records from system restarts, sensor dropout gaps, and communication noise. The pure-Python cleaner (\texttt{src/cleaner.py}) transforms raw inputs into a sanitized, enriched dataset (\texttt{data/clean/metrics.csv}) alongside an audit summary (\texttt{cleaning\_report.json}).
+
+\begin{figure}[htbp]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Stage} & \textbf{Operation} & \textbf{Algorithm / Criteria} \\ \hline
+1. Validation & Strict bounds checking & Percentage $\in [0.0, 100.0]$, Temp $\in [0, 120]^\circ\text{C}$, Floats $\ge 0$ \\ \hline
+2. Deduplication & Epoch uniqueness & Drop duplicate timestamps; resolve conflicts via latest entry \\ \hline
+3. Temporal Sorting & Chronological order & Stable sort by ascending Unix epoch timestamp \\ \hline
+4. Gap Imputation & Short gaps ($\le 3$ missing) & Forward-fill last valid state; mark $\text{is\_filled}=1$ \\ \hline
+5. Downtime Flag & Long gaps ($> 3$ missing) & Isolate discontinuity; mark $\text{is\_gap}=1$ (no data fabrication) \\ \hline
+6. Outlier Analysis & Rolling median window & $|x_i - \text{median}| \ge \Delta_{\min}$; flag $\text{is\_outlier}=1$ (never drop) \\ \hline
+7. Data Retention & Aging data pruning & Purge files and records older than $\text{retention\_hours}$ \\ \hline
+\end{tabular}
+\caption{Processing stages of the \texttt{cleaner.py} pipeline.}
+\label{tab:cleaner_stages}
+\end{figure}
+
+\subsubsection{Imputation Strategy for Missing Samples}
+For successive cleaned rows at timestamps $t_{i-1}$ and $t_i$, the missing sample count is defined relative to the configured interval $\tau = \text{interval\_s}$:
+\begin{equation}
+    k = \left\lfloor \frac{t_i - t_{i-1}}{\tau} \right\rfloor - 1
+\end{equation}
+\begin{itemize}
+    \item \textbf{Short Gaps ($1 \le k \le 3$)}: Minor scheduling latencies or transient I/O delays are imputed using forward-fill (holding the prior known measurement constant). The interpolated rows are generated with $\text{is\_filled} = 1$, $\text{is\_gap} = 0$, and $\text{is\_outlier} = 0$.
+    \item \textbf{Long Gaps ($k > 3$)}: Represents system suspension, collector stoppage, or machine hibernation. The cleaner deliberately avoids inventing speculative telemetry across extended durations; instead, the boundary record is marked with $\text{is\_gap} = 1$, enabling the statistical analyzer to partition analytical windows across discontinuities.
+\end{itemize}
+
+\subsubsection{Statistical Outlier Detection}
+To detect anomalous metric deviations without requiring external dependencies like NumPy or SciPy, the cleaner maintains a rolling median window (window size $W = 7$ to $11$). A sample $x_i$ is flagged as an outlier if:
+\begin{equation}
+    |x_i - \text{median}_{j \in [i-W/2, i+W/2]}(x_j)| \ge \Delta_{\min}
+\end{equation}
+where thresholds $\Delta_{\min}$ are calibrated to the physical metric (e.g., $25.0\%$ for CPU and Memory, $15.0^\circ\text{C}$ for Temperature). \textbf{Crucially, outlier rows are never dropped}; they are annotated with $\text{is\_outlier} = 1$ so that genuine high-load spikes are preserved for threshold evaluation by the alert engine.
+
+\subsubsection{Configurable Data Retention Pruning}
+To ensure unbounded collection does not deplete target disk storage, \texttt{cleaner.py} incorporates an automated retention pruning mechanism (\texttt{--retention-hours}, default 168 hours / 7 days). At each pipeline invocation:
+\begin{enumerate}
+    \item The cutoff epoch is calculated: $t_{\text{cutoff}} = t_{\text{now}} - (\text{retention\_hours} \times 3600)$.
+    \item Daily raw files (\texttt{metrics\_YYYYMMDD.csv}) prior to the cutoff date are unlinked.
+    \item Boundary-day files are pruned line-by-line via atomic stream writing, retaining only entries where $\text{epoch} \ge t_{\text{cutoff}}$.
+    \item Matching entries in \texttt{alerts.csv} are symmetrically pruned to prevent memory bloat in the dashboard API.
+\end{enumerate}
+
+\subsection{Testing and Empirical Verification}
+The collector and cleaner modules are backed by dedicated test suites:
+\begin{itemize}
+    \item \textbf{\texttt{tests/test\_collector.py}}: Tests start/stop/status return codes, PID lifecycle, exclusive flock mutual exclusion, 16-column metrics formatting, top-process whitespace parsing, and NVIDIA suspend power checking via mocked PCI status files.
+    \item \textbf{\texttt{tests/test\_cleaner.py}}: Tests schema boundary validation, corrupted row dropping, duplicate resolution, short-gap interpolation, long-gap flagging, spike detection, and retention cutoff behavior across synthetic fixtures.
+\end{itemize}
+All test suites pass with 100\% compliance under both native Linux and Windows WSL2 environments.

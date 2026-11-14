@@ -1,0 +1,58 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{microtype}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={SysMon Technical Report},
+}
+
+\title{\textbf{SysMon: Unix System Monitoring Dashboard}\\
+\large Coursework Project Report --- System Software Laboratory (SSL)}
+\author{
+\textbf{Team Members:}\\
+Varun J Kumar (P1: Integrator + Analysis)\\
+Harsha (P2: Collector + Cleaner)\\
+Prerit Devashetti (P3: Frontend Dashboard)\\
+Amogh (P4: Backend API Server)\\
+Amitha Reddy Kota (P5: Testing, Alerts \& Profiling)
+}
+\date{November 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introduction and Overall Architecture}
+SysMon is a lightweight, terminal-free Unix system monitoring suite designed to collect, clean, analyze, and visualize operating system telemetry in real time. The system combines low-overhead Bash collectors, automated Python data cleaning and statistical forecasting, stateful threshold alerting, and a local web dashboard.
+
+% --- Section by P2: Collector + Cleaner ---
+\input{sections/collector_cleaner.tex}
+
+\newpage
+\section{Integrator and Statistical Analyzer (P1)}
+\textit{[Section maintained by P1: System launcher, pipeline coordinator, statistical aggregation windows, linear disk forecast, and z-score anomaly modeling.]}
+
+\newpage
+\section{Backend API and Control Server (P4)}
+\textit{[Section maintained by P4: Flask REST API, static asset serving, collector process management, downsampling algorithms, and configuration endpoints.]}
+
+\newpage
+\section{Frontend Web Dashboard (P3)}
+\textit{[Section maintained by P3: Dark/light responsive dashboard, live Chart.js graphs, process inspection UI, alert badges, and interactive threshold settings.]}
+
+\newpage
+\section{Alert Engine, Testing, and Performance Profiling (P5)}
+\textit{[Section maintained by P5: Multi-state alert transition engine, notification delivery, cProfile benchmarking, vectorized pandas optimization, and synthetic load testing.]}
+
+\end{document}
