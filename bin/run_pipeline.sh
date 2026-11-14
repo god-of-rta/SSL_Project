@@ -6,6 +6,11 @@
 
 set -u
 
+# Avoid spawning full-core OpenBLAS/OMP thread pools per short-lived Python subprocess
+export OPENBLAS_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
@@ -31,45 +36,139 @@ else
     PYTHON_BIN="python"
 fi
 
-START_EPOCH=$("$PYTHON_BIN" -c "import time; print(f'{time.time():.4f}')")
+read_pipeline_state() {
+    "$PYTHON_BIN" -c '
+import configparser, datetime, os, re, sys, time
+
+raw_dir, conf_path, alerts_path = sys.argv[1], sys.argv[2], sys.argv[3]
+now_ts = time.time()
+ret_h = 168
+if os.path.isfile(conf_path):
+    cfg = configparser.ConfigParser(interpolation=None)
+    try:
+        cfg.read(conf_path, encoding="utf-8")
+        ret_h = max(0, int(cfg.get("sysmon", "retention_hours", fallback="168")))
+    except Exception:
+        ret_h = 168
+
+cutoff = int(now_ts) - ret_h * 3600 if ret_h > 0 else 0
+may_expire = False
+dated_re = re.compile(r"^(?:metrics|processes)_(\d{4})(\d{2})(\d{2})\.csv$")
+
+def first_row_expired(path, cut):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            hdr = f.readline()
+            if not hdr:
+                return False
+            cols = [c.strip() for c in hdr.strip("\r\n").split(",")]
+            if "epoch" not in cols:
+                return False
+            idx = cols.index("epoch")
+            for line in f:
+                if not line.strip():
+                    continue
+                parts = line.split(",")
+                if idx < len(parts):
+                    try:
+                        return int(float(parts[idx].strip())) < cut
+                    except ValueError:
+                        return False
+                return False
+    except OSError:
+        return False
+    return False
+
+items = []
+if os.path.isdir(raw_dir):
+    for e in sorted(os.scandir(raw_dir), key=lambda x: x.name):
+        if e.is_file() and e.name.endswith(".csv") and (e.name.startswith("metrics_") or e.name.startswith("processes_")):
+            st = e.stat()
+            items.append(f"{e.name}:{st.st_size}:{st.st_mtime_ns}")
+            if ret_h > 0 and not may_expire:
+                m = dated_re.match(e.name)
+                if m:
+                    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                    try:
+                        d_start = int(datetime.datetime(y, mo, d, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp())
+                        d_end = int(datetime.datetime(y, mo, d, 23, 59, 59, tzinfo=datetime.timezone.utc).timestamp())
+                        if d_end < cutoff or (d_start < cutoff and first_row_expired(e.path, cutoff)):
+                            may_expire = True
+                    except ValueError:
+                        pass
+
+if ret_h > 0 and not may_expire and os.path.isfile(alerts_path):
+    if first_row_expired(alerts_path, cutoff):
+        may_expire = True
+
+print(f"{now_ts:.4f}|{ret_h}|{1 if may_expire else 0}|" + ";".join(items))
+' "$RAW_DIR" "$CONFIG_DIR/sysmon.conf" "$DATA_DIR/alerts.csv"
+}
+
+START_INFO="$(read_pipeline_state)"
+START_EPOCH="${START_INFO%%|*}"
+REST="${START_INFO#*|}"
+RETENTION_HOURS="${REST%%|*}"
+REST="${REST#*|}"
+MAY_EXPIRE="${REST%%|*}"
+RAW_SIG="${REST#*|}"
 START_INT=${START_EPOCH%.*}
+STAMP_FILE="$DATA_DIR/.pipeline_raw_stamp"
+RAW_UNCHANGED=false
+if [ "$MAY_EXPIRE" = "0" ] && [ -f "$STAMP_FILE" ] && [ -f "$CLEAN_DIR/metrics.csv" ] && [ -f "$DATA_DIR/stats.json" ] && [ "$(cat "$STAMP_FILE" 2>/dev/null)" = "$RAW_SIG" ]; then
+    RAW_UNCHANGED=true
+fi
 
 echo "=== Pipeline run started at $(date -u +'%Y-%m-%dT%H:%M:%SZ') ===" >> "$LOG_FILE"
 
 FAILED_STAGE=""
 STAGE_OK=true
 
-# Stage 1: Cleaner
-if [ -f "$ROOT_DIR/src/cleaner.py" ]; then
-    echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Running cleaner..." >> "$LOG_FILE"
-    if ! "$PYTHON_BIN" "$ROOT_DIR/src/cleaner.py" \
-        --input-dir "$RAW_DIR" \
-        --output "$CLEAN_DIR/metrics.csv" \
-        --report "$CLEAN_DIR/cleaning_report.json" >> "$LOG_FILE" 2>&1; then
-        FAILED_STAGE="cleaner"
-        STAGE_OK=false
-        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Cleaner stage failed" >> "$LOG_FILE"
-    fi
+if [ "$RAW_UNCHANGED" = true ]; then
+    echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Raw inputs unchanged; skipping cleaner and analyzer" >> "$LOG_FILE"
 else
-    echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Cleaner stage skipped (src/cleaner.py not present)" >> "$LOG_FILE"
-fi
-
-# Stage 2: Analyzer
-if [ "$STAGE_OK" = true ]; then
-    if [ -f "$ROOT_DIR/src/analyzer.py" ]; then
-        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Running analyzer..." >> "$LOG_FILE"
-        if ! "$PYTHON_BIN" "$ROOT_DIR/src/analyzer.py" \
-            --input "$CLEAN_DIR/metrics.csv" \
-            --processes-dir "$RAW_DIR" \
-            --output "$DATA_DIR/stats.json" >> "$LOG_FILE" 2>&1; then
-            FAILED_STAGE="analyzer"
+    # Stage 1: Cleaner
+    if [ -f "$ROOT_DIR/src/cleaner.py" ]; then
+        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Running cleaner..." >> "$LOG_FILE"
+        if ! "$PYTHON_BIN" "$ROOT_DIR/src/cleaner.py" \
+            --input-dir "$RAW_DIR" \
+            --output "$CLEAN_DIR/metrics.csv" \
+            --report "$CLEAN_DIR/cleaning_report.json" \
+            --retention-hours "$RETENTION_HOURS" \
+            --alerts "$DATA_DIR/alerts.csv" >> "$LOG_FILE" 2>&1; then
+            FAILED_STAGE="cleaner"
             STAGE_OK=false
-            echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Analyzer stage failed" >> "$LOG_FILE"
+            echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Cleaner stage failed" >> "$LOG_FILE"
         fi
     else
-        FAILED_STAGE="analyzer"
-        STAGE_OK=false
-        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Analyzer stage missing (src/analyzer.py not found)" >> "$LOG_FILE"
+        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Cleaner stage skipped (src/cleaner.py not present)" >> "$LOG_FILE"
+    fi
+
+    # Stage 2: Analyzer
+    if [ "$STAGE_OK" = true ]; then
+        if [ -f "$ROOT_DIR/src/analyzer.py" ]; then
+            echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Running analyzer..." >> "$LOG_FILE"
+            if ! "$PYTHON_BIN" "$ROOT_DIR/src/analyzer.py" \
+                --input "$CLEAN_DIR/metrics.csv" \
+                --processes-dir "$RAW_DIR" \
+                --output "$DATA_DIR/stats.json" >> "$LOG_FILE" 2>&1; then
+                FAILED_STAGE="analyzer"
+                STAGE_OK=false
+                echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Analyzer stage failed" >> "$LOG_FILE"
+            fi
+        else
+            FAILED_STAGE="analyzer"
+            STAGE_OK=false
+            echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Analyzer stage missing (src/analyzer.py not found)" >> "$LOG_FILE"
+        fi
+    fi
+
+    if [ "$STAGE_OK" = true ]; then
+        if [ "$MAY_EXPIRE" = "1" ]; then
+            POST_INFO="$(read_pipeline_state)"
+            RAW_SIG="${POST_INFO##*|}"
+        fi
+        printf "%s" "$RAW_SIG" > "$STAMP_FILE"
     fi
 fi
 

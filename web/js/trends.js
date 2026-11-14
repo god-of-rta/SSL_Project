@@ -1,19 +1,17 @@
 
-const API_BASE = "http://127.0.0.1:5000";
+// API_BASE, apiRequest, setConnection and showToast come from common.js
 
 let selectedRange = "24h";
 let resourceChart = null;
 let temperatureChart = null;
 let networkChart = null;
 
-async function getAPI(path) {
-    const response = await fetch(`${API_BASE}${path}`);
+const getAPI = (path) => apiRequest(path);
 
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-
-    return response.json();
+// Chart axis colours follow the active light/dark theme.
+function themeVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
 }
 
 function getColumn(data, name) {
@@ -77,7 +75,7 @@ function showEmpty(id, show) {
 // CHART CREATION
 // --------------------------------------------------
 
-function makeChart(canvasId, oldChart, labels, datasets, emptyId) {
+function makeChart(canvasId, oldChart, labels, datasets, emptyId, options = {}) {
     const canvas = document.getElementById(canvasId);
 
     if (oldChart) oldChart.destroy();
@@ -103,10 +101,13 @@ function makeChart(canvasId, oldChart, labels, datasets, emptyId) {
             labels,
             datasets: datasets.map(dataset => ({
                 ...dataset,
-                borderWidth: 2,
+                borderWidth: 2.5,
                 pointRadius: 0,
-                pointHoverRadius: 4,
-                tension: 0.3,
+                pointHoverRadius: 5,
+                pointHoverBackgroundColor: "#fff",
+                pointHoverBorderWidth: 2,
+                borderCapStyle: "round",
+                tension: 0.35,
                 spanGaps: false
             }))
         },
@@ -120,6 +121,15 @@ function makeChart(canvasId, oldChart, labels, datasets, emptyId) {
             plugins: {
                 legend: {
                     display: false
+                },
+                tooltip: {
+                    backgroundColor: "#0f1218",
+                    padding: 12,
+                    cornerRadius: 12,
+                    titleFont: { family: "Inter, sans-serif", size: 13 },
+                    bodyFont: { family: "Inter, sans-serif", size: 13 },
+                    boxPadding: 5,
+                    usePointStyle: true
                 }
             },
             scales: {
@@ -128,22 +138,32 @@ function makeChart(canvasId, oldChart, labels, datasets, emptyId) {
                         display: false
                     },
                     ticks: {
-                        maxTicksLimit: 8,
-                        color: "#8c98aa",
+                        maxTicksLimit: 7,
+                        maxRotation: 0,
+                        color: themeVar("--chart-tick", "#7d8497"),
                         font: {
-                            size: 9
+                            family: "Inter, sans-serif",
+                            size: 12
                         }
+                    },
+                    border: {
+                        display: false
                     }
                 },
                 y: {
                     beginAtZero: true,
+                    ...(options.max ? { max: options.max } : {}),
                     grid: {
-                        color: "#edf0f5"
+                        color: themeVar("--chart-grid", "#f0f1f5")
+                    },
+                    border: {
+                        display: false
                     },
                     ticks: {
-                        color: "#8c98aa",
+                        color: themeVar("--chart-tick", "#7d8497"),
                         font: {
-                            size: 9
+                            family: "Inter, sans-serif",
+                            size: 12
                         }
                     }
                 }
@@ -179,23 +199,24 @@ function renderResourceChart(data) {
             {
                 label: "CPU",
                 data: cpu,
-                borderColor: "#5c83ff",
-                backgroundColor: "#5c83ff"
+                borderColor: "#2f66f0",
+                backgroundColor: "#2f66f0"
             },
             {
                 label: "Memory",
                 data: memory,
-                borderColor: "#32cda2",
-                backgroundColor: "#32cda2"
+                borderColor: "#22c55e",
+                backgroundColor: "#22c55e"
             },
             {
                 label: "Disk",
                 data: disk,
-                borderColor: "#f4b24a",
-                backgroundColor: "#f4b24a"
+                borderColor: "#f5a524",
+                backgroundColor: "#f5a524"
             }
         ],
-        "resourceEmpty"
+        "resourceEmpty",
+        { max: 100 }
     );
 }
 
@@ -215,14 +236,14 @@ function renderTemperatureChart(data) {
             {
                 label: "CPU Temperature",
                 data: getSeries(data, "cpu_temp_c"),
-                borderColor: "#ed7785",
-                backgroundColor: "#ed7785"
+                borderColor: "#f0476b",
+                backgroundColor: "#f0476b"
             },
             {
                 label: "GPU Temperature",
                 data: getSeries(data, "gpu_temp_c"),
-                borderColor: "#9275ed",
-                backgroundColor: "#9275ed"
+                borderColor: "#8b6cf0",
+                backgroundColor: "#8b6cf0"
             }
         ],
         "temperatureEmpty"
@@ -245,14 +266,14 @@ function renderNetworkChart(data) {
             {
                 label: "Receive",
                 data: getSeries(data, "net_rx_kbps"),
-                borderColor: "#4387f4",
-                backgroundColor: "#4387f4"
+                borderColor: "#2f66f0",
+                backgroundColor: "#2f66f0"
             },
             {
                 label: "Transmit",
                 data: getSeries(data, "net_tx_kbps"),
-                borderColor: "#32cda2",
-                backgroundColor: "#32cda2"
+                borderColor: "#22c55e",
+                backgroundColor: "#22c55e"
             }
         ],
         "networkEmpty"
@@ -267,7 +288,7 @@ function renderNetworkChart(data) {
 function renderStatistics(stats) {
     const body = document.getElementById("statisticsBody");
     const windows = stats.windows || {};
-    const selected = windows[selectedRange];
+    const selected = windows[selectedRange] || (selectedRange === "7d" ? windows.all : null);
 
     document.getElementById("statisticsRange").textContent =
         selectedRange === "1h" ? "Last 1 hour" :
@@ -305,12 +326,12 @@ function renderStatistics(stats) {
 
         return `
             <tr>
-                <td>${label}</td>
-                <td>${format(values.mean)}</td>
-                <td>${format(values.min)}</td>
-                <td>${format(values.max)}</td>
-                <td>${format(values.p95)}</td>
-                <td>${format(values.std)}</td>
+                <td class="cell-title">${label}</td>
+                <td class="num">${format(values.mean)}</td>
+                <td class="num">${format(values.min)}</td>
+                <td class="num">${format(values.max)}</td>
+                <td class="num">${format(values.p95)}</td>
+                <td class="num">${format(values.std)}</td>
             </tr>`;
     }).filter(Boolean).join("") || `
         <tr>
@@ -337,18 +358,12 @@ async function loadTrends() {
         renderNetworkChart(metrics);
         renderStatistics(stats);
 
-        const dot = document.getElementById("connectionDot");
-        dot.classList.add("online");
-        dot.classList.remove("offline");
-
-        document.getElementById("connectionText").textContent =
-            "Connected";
+        setConnection(true);
 
     } catch (error) {
         console.error("Trends loading error:", error);
 
-        document.getElementById("connectionText").textContent =
-            "Offline";
+        setConnection(false);
 
         ["resourceEmpty", "temperatureEmpty", "networkEmpty"]
             .forEach(id => showEmpty(id, true));

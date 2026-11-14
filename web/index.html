@@ -4,267 +4,205 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#f7f8fb">
-    <title>SysMon | System Analytics</title>
+    <meta name="theme-color" content="#e9eaee">
+    <title>SysMon | Dashboard</title>
+    <script>
+        /* apply the saved (or system) theme before first paint */
+        try {
+            document.documentElement.dataset.theme = localStorage.getItem("sysmon-theme") ||
+                (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        } catch (e) { document.documentElement.dataset.theme = "light"; }
+    </script>
     <link rel="stylesheet" href="style.css">
 </head>
 
-<body>
+<body data-page="dashboard">
 
-    <div class="app-layout">
+    <div class="shell">
+        <aside class="sidebar" id="sidebar"></aside>
 
-        <!-- LEFT SIDEBAR -->
-        <aside class="sidebar">
-            <a href="index.html" class="brand">
-                <div class="brand-mark">S</div>
-                <div class="brand-name">SYSMON</div>
-            </a>
-
-            <div class="nav-caption">MONITORING</div>
-
-            <nav class="nav-menu">
-                <a href="index.html" class="nav-item active">
-                    <span class="nav-icon">▦</span>
-                    <span>Dashboard</span>
-                </a>
-                <a href="trends.html" class="nav-item">
-                    <span class="nav-icon">⌁</span>
-                    <span>Performance Trends</span>
-                </a>
-                <a href="processes.html" class="nav-item">
-                    <span class="nav-icon">▤</span>
-                    <span>Processes</span>
-                </a>
-                <a href="alerts.html" class="nav-item">
-                    <span class="nav-icon">♧</span>
-                    <span>Alerts</span>
-                    <span class="nav-count" id="alertBadge">0</span>
-                </a>
-            </nav>
-
-            <div class="nav-caption settings-caption">PREFERENCES</div>
-
-            <nav class="nav-menu">
-                <a href="settings.html" class="nav-item">
-                    <span class="nav-icon">⚙</span>
-                    <span>Settings</span>
-                </a>
-            </nav>
-
-            <div class="sidebar-spacer"></div>
-
-            <div class="sidebar-status">
-                <div class="status-heading">
-                    <span class="status-indicator" id="sidebarDot"></span>
-                    <span>MONITOR STATUS</span>
-                </div>
-                <strong id="sidebarStatus">Disconnected</strong>
-                <small id="sidebarSubstatus">Waiting for backend</small>
-            </div>
-
-            <div class="sidebar-footer">
-                <span class="footer-logo">S</span>
-                <div>
-                    <strong>SysMon</strong>
-                    <small>System Monitor v1.0</small>
-                </div>
-            </div>
-        </aside>
-
-
-        <!-- MAIN WORKSPACE -->
         <main class="workspace">
 
-            <!-- TOP HEADER -->
             <header class="topbar">
-                <div class="page-heading">
-                    <div class="breadcrumb">Monitoring <span>/</span> Dashboard</div>
-                    <h1>System Overview</h1>
-                    <p>Monitor your system health and performance.</p>
-                </div>
-
+                <h1>System overview</h1>
                 <div class="header-actions">
-                    <div class="connection-pill" id="connectionPill">
-                        <span class="status-indicator"></span>
-                        <span id="connectionText">Offline</span>
-                    </div>
-                    <button class="icon-button" id="headerRefresh" title="Refresh data">↻</button>
-                    <div class="user-avatar">SM</div>
+                    <button class="btn btn-ghost" id="headerRefresh" type="button">
+                        <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 12a8 8 0 1 1-2.5-5.8L20 8" />
+                            <path d="M20 3v5h-5" />
+                        </svg>
+                        Refresh data
+                    </button>
+                    <button class="btn btn-primary" id="refreshAnalysis" type="button">Run analysis</button>
                 </div>
             </header>
 
-
-            <!-- FILTER / CONTROL ROW -->
-            <section class="filter-row">
-                <div class="filter-control">
-                    <label>MONITORING PERIOD</label>
+            <!-- FILTER PILLS -->
+            <section class="pill-row" aria-label="Dashboard controls">
+                <label class="pill">
+                    <span>Period:</span>
                     <select id="dashboardRange">
-                        <option value="1h">Last 1 hour</option>
+                        <option value="1h">Last hour</option>
                         <option value="24h" selected>Last 24 hours</option>
                         <option value="7d">Last 7 days</option>
                     </select>
-                </div>
+                </label>
 
-                <div class="filter-control">
-                    <label>REFRESH INTERVAL</label>
+                <label class="pill">
+                    <span>Refresh every:</span>
                     <select id="refreshInterval">
                         <option value="5">5 seconds</option>
                         <option value="10" selected>10 seconds</option>
                         <option value="30">30 seconds</option>
                         <option value="60">1 minute</option>
                     </select>
-                </div>
+                </label>
 
-                <div class="filter-control filter-status">
-                    <label>COLLECTOR</label>
-                    <div class="collector-value">
-                        <span class="status-indicator" id="collectorDot"></span>
-                        <strong id="collectorStatus">Not running</strong>
-                    </div>
-                </div>
-
-                <button class="primary-button refresh-button" id="refreshAnalysis">
-                    ↻ &nbsp; Refresh analysis
-                </button>
-            </section>
-
-
-            <!-- METRICS -->
-            <section class="content-section">
-                <div class="section-title-row">
-                    <div>
-                        <h2>Resource utilization</h2>
-                        <p>Current system resource consumption</p>
-                    </div>
-                    <span class="section-note" id="lastUpdated">Last updated —</span>
-                </div>
-
-                <div class="metrics-grid">
-
-                    <article class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-label">CPU Usage</span>
-                            <span class="metric-symbol cpu-symbol">⌁</span>
-                        </div>
-                        <div class="metric-value-row">
-                            <strong id="cpuValue">--</strong>
-                            <span class="metric-unit">%</span>
-                        </div>
-                        <div class="metric-track">
-                            <div class="metric-fill cpu-fill" id="cpuBar"></div>
-                        </div>
-                        <div class="metric-footer">
-                            <span>Processor utilization</span>
-                            <span id="cpuMeta">No data</span>
-                        </div>
-                    </article>
-
-                    <article class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-label">Memory Usage</span>
-                            <span class="metric-symbol memory-symbol">▦</span>
-                        </div>
-                        <div class="metric-value-row">
-                            <strong id="memoryValue">--</strong>
-                            <span class="metric-unit">%</span>
-                        </div>
-                        <div class="metric-track">
-                            <div class="metric-fill memory-fill" id="memoryBar"></div>
-                        </div>
-                        <div class="metric-footer">
-                            <span>RAM utilization</span>
-                            <span id="memoryMeta">No data</span>
-                        </div>
-                    </article>
-
-                    <article class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-label">Disk Usage</span>
-                            <span class="metric-symbol disk-symbol">▤</span>
-                        </div>
-                        <div class="metric-value-row">
-                            <strong id="diskValue">--</strong>
-                            <span class="metric-unit">%</span>
-                        </div>
-                        <div class="metric-track">
-                            <div class="metric-fill disk-fill" id="diskBar"></div>
-                        </div>
-                        <div class="metric-footer">
-                            <span>Storage utilization</span>
-                            <span id="diskMeta">No data</span>
-                        </div>
-                    </article>
-
-                    <article class="metric-card">
-                        <div class="metric-header">
-                            <span class="metric-label">CPU Temperature</span>
-                            <span class="metric-symbol temp-symbol">♨</span>
-                        </div>
-                        <div class="metric-value-row">
-                            <strong id="temperatureValue">--</strong>
-                            <span class="metric-unit">°C</span>
-                        </div>
-                        <div class="metric-track">
-                            <div class="metric-fill temp-fill" id="temperatureBar"></div>
-                        </div>
-                        <div class="metric-footer">
-                            <span>Processor temperature</span>
-                            <span id="temperatureMeta">No data</span>
-                        </div>
-                    </article>
+                <div class="pill">
+                    <span>Collector:</span>
+                    <strong><span class="status-indicator" id="collectorDot"></span><span id="collectorStatus">Not
+                            running</span></strong>
                 </div>
             </section>
 
+            <!-- GAUGES -->
+            <section class="dial-grid" aria-label="Key metrics">
+                <article class="stat-card dial-card" data-dial="cpu">
+                    <div class="stat-head"><span>CPU usage</span><i class="level-dot" id="cpuLevel"></i></div>
+                    <div class="dial">
+                        <svg class="dial-svg" viewBox="0 0 230 230" aria-hidden="true"></svg>
+                        <div class="dial-center">
+                            <div class="stat-value"><strong id="cpuValue">--</strong><span class="stat-unit">%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-meta" id="cpuMeta">No data</div>
+                </article>
+                <article class="stat-card dial-card" data-dial="memory">
+                    <div class="stat-head"><span>Memory</span><i class="level-dot" id="memoryLevel"></i></div>
+                    <div class="dial">
+                        <svg class="dial-svg" viewBox="0 0 230 230" aria-hidden="true"></svg>
+                        <div class="dial-center">
+                            <div class="stat-value"><strong id="memoryValue">--</strong><span class="stat-unit">%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-meta" id="memoryMeta">No data</div>
+                </article>
+                <article class="stat-card dial-card" data-dial="disk">
+                    <div class="stat-head"><span>Disk</span><i class="level-dot" id="diskLevel"></i></div>
+                    <div class="dial">
+                        <svg class="dial-svg" viewBox="0 0 230 230" aria-hidden="true"></svg>
+                        <div class="dial-center">
+                            <div class="stat-value"><strong id="diskValue">--</strong><span class="stat-unit">%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-meta" id="diskMeta">No data</div>
+                </article>
+                <article class="stat-card dial-card" data-dial="temperature">
+                    <div class="stat-head"><span>CPU temperature</span><i class="level-dot" id="temperatureLevel"></i>
+                    </div>
+                    <div class="dial">
+                        <svg class="dial-svg" viewBox="0 0 230 230" aria-hidden="true"></svg>
+                        <div class="dial-center">
+                            <div class="stat-value"><strong id="temperatureValue">--</strong><span
+                                    class="stat-unit">°C</span></div>
+                        </div>
+                    </div>
+                    <div class="stat-meta" id="temperatureMeta">No data</div>
+                </article>
+            </section>
 
-            <!-- CHART + SYSTEM HEALTH -->
-            <section class="middle-grid">
+            <!-- COMPACT STATS + ACTIVITY -->
+            <section class="dash-top">
 
-                <article class="panel activity-panel">
+                <div class="stat-grid">
+                    <article class="stat-card">
+                        <div class="stat-head"><span>GPU usage</span><i class="level-dot" id="gpuLevel"></i></div>
+                        <div class="stat-value"><strong id="gpuValue">n/a</strong><span class="stat-unit">%</span></div>
+                        <svg class="spark" id="gpuSpark" viewBox="0 0 120 34" preserveAspectRatio="none"
+                            aria-hidden="true"></svg>
+                        <div class="stat-meta" id="gpuMeta">No GPU detected</div>
+                    </article>
+
+                    <article class="stat-card">
+                        <div class="stat-head"><span>Load average</span></div>
+                        <div class="stat-value"><strong id="loadValue">--</strong></div>
+                        <svg class="spark" id="loadSpark" viewBox="0 0 120 34" preserveAspectRatio="none"
+                            aria-hidden="true"></svg>
+                        <div class="stat-meta" id="loadMeta">1-minute average</div>
+                    </article>
+                </div>
+
+                <article class="panel">
                     <div class="panel-heading">
-                        <div>
-                            <h2>Performance activity</h2>
-                            <p>Resource utilization over time</p>
+                        <h2>Activity</h2>
+                        <div class="segmented" id="metricSwitch" role="group" aria-label="Metric shown in the chart">
+                            <button type="button" class="active" data-metric="cpu_pct">CPU</button>
+                            <button type="button" data-metric="mem_used_pct">Memory</button>
+                            <button type="button" data-metric="disk_used_pct">Disk</button>
                         </div>
-                        <select id="chartRange" class="small-select">
-                            <option value="1h">1 hour</option>
-                            <option value="24h" selected>24 hours</option>
-                            <option value="7d">7 days</option>
-                        </select>
                     </div>
 
-                    <div class="chart-legend">
-                        <span><i class="legend-dot cpu-legend"></i> CPU</span>
-                        <span><i class="legend-dot memory-legend"></i> Memory</span>
-                        <span><i class="legend-dot disk-legend"></i> Disk</span>
-                    </div>
-
-                    <div class="chart-container">
-                        <div class="chart-y-labels">
-                            <span>100%</span>
-                            <span>75%</span>
-                            <span>50%</span>
-                            <span>25%</span>
-                            <span>0%</span>
+                    <div class="bars-wrap">
+                        <div class="bars-y" aria-hidden="true">
+                            <span>100</span><span>75</span><span>50</span><span>25</span><span>0</span>
                         </div>
-                        <div class="chart-area" id="performanceChart">
-                            <div class="chart-empty">Waiting for monitoring data</div>
+                        <div class="bars" id="performanceChart" role="img" aria-label="Activity chart">
+                            <div class="empty-block">Waiting for monitoring data</div>
                         </div>
-                    </div>
-                    <div class="chart-x-labels" id="chartLabels">
-                        <span>Waiting for data</span>
+                        <div class="bars-x" id="chartLabels"></div>
                     </div>
                 </article>
+            </section>
 
-
-                <article class="panel health-panel">
+            <!-- PROCESSES + ALERTS -->
+            <section class="split">
+                <article class="panel">
                     <div class="panel-heading">
-                        <div>
-                            <h2>System health</h2>
-                            <p>Monitoring service overview</p>
-                        </div>
-                        <span class="health-icon">✚</span>
+                        <h2>Top processes</h2>
+                        <a href="processes.html" class="link">View all</a>
                     </div>
+                    <ul class="rank-list" id="topProcesses">
+                        <li class="empty-state"><strong>No process data yet</strong>Run the analysis to see the busiest
+                            processes.</li>
+                    </ul>
+                </article>
 
+                <article class="panel">
+                    <div class="panel-heading">
+                        <h2>Recent alerts</h2>
+                        <a href="alerts.html" class="link">View all</a>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Alert</th>
+                                    <th>Severity</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentAlerts">
+                                <tr>
+                                    <td colspan="3" class="empty-cell">No alerts recorded</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+            </section>
+
+            <!-- HEALTH -->
+            <section class="panel">
+                <div class="panel-heading">
+                    <h2>System health</h2>
+                    <span class="stat-meta" id="lastUpdated" style="padding:0">Not updated yet</span>
+                </div>
+
+                <div class="health-body">
                     <div class="health-status" id="healthStatus">
                         <span class="health-status-dot"></span>
                         <div>
@@ -273,117 +211,43 @@
                         </div>
                     </div>
 
-                    <div class="health-row">
-                        <span>Collector</span>
-                        <strong id="healthCollector">Unknown</strong>
-                    </div>
-                    <div class="health-row">
-                        <span>Last sample</span>
-                        <strong id="healthSample">—</strong>
-                    </div>
-                    <div class="health-row">
-                        <span>CPU cores</span>
-                        <strong id="healthCores">—</strong>
-                    </div>
-                    <div class="health-row">
-                        <span>Operating system</span>
-                        <strong id="healthOS">—</strong>
-                    </div>
-
-                    <div class="health-actions">
-                        <button class="primary-button" id="startCollector">Start collector</button>
-                        <button class="secondary-button" id="stopCollector">Stop</button>
-                    </div>
-                </article>
-            </section>
-
-
-            <!-- ALERTS + PROCESSES -->
-            <section class="bottom-grid">
-
-                <article class="panel table-panel">
-                    <div class="panel-heading">
-                        <div>
-                            <h2>Recent alerts</h2>
-                            <p>Latest system notifications</p>
-                        </div>
-                        <a href="alerts.html" class="view-link">View all →</a>
-                    </div>
-
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>ALERT</th>
-                                    <th>SEVERITY</th>
-                                    <th>TIME</th>
-                                </tr>
-                            </thead>
-                            <tbody id="recentAlerts">
-                                <tr>
-                                    <td colspan="3" class="empty-cell">No alert data available</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </article>
-
-
-                <article class="panel table-panel">
-                    <div class="panel-heading">
-                        <div>
-                            <h2>Top processes</h2>
-                            <p>Highest resource consumers</p>
-                        </div>
-                        <a href="processes.html" class="view-link">View all →</a>
-                    </div>
-
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>PROCESS</th>
-                                    <th>CPU</th>
-                                    <th>MEMORY</th>
-                                </tr>
-                            </thead>
-                            <tbody id="topProcesses">
-                                <tr>
-                                    <td colspan="3" class="empty-cell">No process data available</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </article>
-            </section>
-
-
-            <!-- SYSTEM CONTROLS -->
-            <section class="panel action-panel">
-                <div class="action-description">
-                    <div class="action-icon">⚡</div>
-                    <div>
-                        <h2>Quick actions</h2>
-                        <p>Manage the monitoring pipeline and test notifications.</p>
-                    </div>
+                    <dl class="kv">
+                        <dt>Collector</dt>
+                        <dd id="healthCollector">Unknown</dd>
+                        <dt>Last sample</dt>
+                        <dd id="healthSample">—</dd>
+                    </dl>
+                    <dl class="kv">
+                        <dt>Analysis pipeline</dt>
+                        <dd id="healthPipeline">—</dd>
+                        <dt>Host</dt>
+                        <dd id="healthHost">—</dd>
+                    </dl>
+                    <dl class="kv">
+                        <dt>Processor</dt>
+                        <dd id="healthCores">—</dd>
+                        <dt>Operating system</dt>
+                        <dd id="healthOS">—</dd>
+                    </dl>
                 </div>
-                <div class="action-buttons">
-                    <button class="secondary-button" id="runPipeline">Run analysis</button>
-                    <button class="secondary-button" id="sendTestAlert">Send test alert</button>
+
+                <div class="health-actions">
+                    <button class="btn btn-primary" id="startCollector" type="button">Start collector</button>
+                    <button class="btn btn-quiet" id="stopCollector" type="button">Stop collector</button>
+                    <button class="btn btn-quiet" id="sendTestAlert" type="button">Send test alert</button>
                 </div>
             </section>
-
 
             <footer class="page-footer">
-                <span>SysMon · System Monitoring Dashboard</span>
+                <span>SysMon · System monitoring dashboard</span>
                 <span>Local monitoring interface</span>
             </footer>
-
         </main>
     </div>
 
     <div class="toast-container" id="toastContainer" aria-live="polite"></div>
 
+    <script src="js/common.js"></script>
     <script src="js/app.js"></script>
 </body>
 
