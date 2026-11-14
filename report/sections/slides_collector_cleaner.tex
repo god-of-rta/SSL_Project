@@ -6,9 +6,9 @@
 \begin{column}{0.50\textwidth}
 \textbf{Lightweight Data Gathering:}
 \begin{itemize}
-    \item \textbf{Low Overhead}: Reads directly from system files (\texttt{/proc}, \texttt{/sys}) instead of heavy utilities (uses $<0.05\%$ CPU).
-    \item \textbf{16 Key Metrics}: Accurate CPU usage deltas, true available memory, disk space, network speeds, and temperature.
-    \item \textbf{Smart GPU Monitoring}: Checks power state first; skips polling when dedicated graphics card is asleep to save battery.
+    \item \textbf{Low Overhead}: Reads system files (\texttt{/proc}, \texttt{/sys}) directly instead of heavy tools ($<0.05\%$ CPU).
+    \item \textbf{16 Key Metrics}: CPU usage deltas, true available memory, disk, network rates, and temperatures.
+    \item \textbf{Smart GPU Monitoring}: Skips polling if dedicated graphics card is asleep, saving battery.
     \item \textbf{Process Tracking}: Records top 5 CPU processes while filtering brief startup glitches.
 \end{itemize}
 \end{column}
@@ -16,14 +16,14 @@
 \begin{column}{0.48\textwidth}
 \textbf{Reliable Daemon Lifecycle:}
 \begin{itemize}
-    \item \textbf{Simple Controls}: Run in background via \texttt{start.sh}, \texttt{stop.sh}, and \texttt{status.sh}.
-    \item \textbf{Single-Instance Lock}: Prevents duplicate collectors from running at the same time.
-    \item \textbf{Clean Shutdown}: Gracefully flushes and closes data files upon stopping.
+    \item \textbf{Simple Controls}: Managed cleanly via \texttt{start.sh}, \texttt{stop.sh}, and \texttt{status.sh}.
+    \item \textbf{Single-Instance Lock}: Prevents duplicate collectors from running concurrently.
+    \item \textbf{Clean Shutdown}: Gracefully flushes data and closes files on exit.
 \end{itemize}
 
-\vspace{0.4em}
+\vspace{0.3em}
 \begin{block}{Interface Contract}
-Generates daily 16-column CSV files and hardware summary (\texttt{system\_info.json}).
+Generates daily 16-column CSVs and hardware summary (\texttt{system\_info.json}).
 \end{block}
 \end{column}
 \end{columns}
@@ -34,12 +34,12 @@ Generates daily 16-column CSV files and hardware summary (\texttt{system\_info.j
 \begin{column}{0.50\textwidth}
 \textbf{Automated Data Sanitization:}
 \begin{itemize}
-    \item \textbf{Validation}: Checks realistic ranges (0--100\%, temperatures $\le 120^\circ\text{C}$); counts and removes corrupted rows.
-    \item \textbf{Sorting \& Deduplication}: Organizes records by timestamp and discards accidental duplicates.
+    \item \textbf{Validation}: Checks realistic bounds (0--100\%, temperatures $\le 120^\circ\text{C}$); drops corrupted rows.
+    \item \textbf{Sorting \& Deduplication}: Orders rows by timestamp and discards duplicate reads.
     \item \textbf{Handling Missing Data}:
     \begin{itemize}
-        \item \emph{Short pauses ($1$--$3$ cycles)}: Forward-fills prior values to keep graphs smooth.
-        \item \emph{Long gaps ($>3$ cycles)}: Flags system sleep or downtime without creating fake data.
+        \item \emph{Short pauses ($1$--$3$ cycles)}: Forward-fills prior values to keep trends smooth.
+        \item \emph{Long gaps ($>3$ cycles)}: Flags sleep/downtime without making up fake data.
     \end{itemize}
 \end{itemize}
 \end{column}
@@ -48,11 +48,11 @@ Generates daily 16-column CSV files and hardware summary (\texttt{system\_info.j
 \textbf{Spike Protection \& Maintenance:}
 \begin{itemize}
     \item \textbf{Highlights Sudden Spikes}: Flags unusual jumps using a rolling-median window.
-    \item \textbf{Never Deletes Spikes}: Keeps real high-load spikes intact so the Alert Engine can detect issues!
-    \item \textbf{Automatic Disk Cleanup}: Deletes data older than 7 days (\texttt{retention\_hours}) to prevent full disks.
+    \item \textbf{Never Deletes Spikes}: Keeps real load spikes intact so alerts still trigger!
+    \item \textbf{Automatic Disk Cleanup}: Deletes files older than 7 days (\texttt{retention\_hours}).
 \end{itemize}
 
-\vspace{0.4em}
+\vspace{0.3em}
 \begin{block}{Verification}
 $100\%$ automated test pass rate (\texttt{test\_collector.py} \& \texttt{test\_cleaner.py}).
 \end{block}
