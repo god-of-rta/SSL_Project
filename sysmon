@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SysMon Launcher (P1: Integrator)
+# SysMon Launcher
 # One-command startup on a fresh clone.
 # Sets up virtual environment, installs requirements, creates default
 # directories and configs, initializes defaults, starts server, and opens browser.

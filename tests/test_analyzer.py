@@ -1,4 +1,4 @@
-"""Unit tests for SysMon Analyzer (P1: Integrator + Analysis).
+"""Unit tests for SysMon Analyzer.
 
 Tests statistical windows, empty/missing inputs, GPU empty handling,
 gap skipping, disk forecast linear regression, z-score anomalies,

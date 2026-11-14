@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SysMon Analyzer Module (P1: Integrator + Analysis).
+"""SysMon Analyzer Module
 
 Reads cleaned metrics CSV and process logs, calculates summary statistics across
 time windows (1h, 24h, 7d, all), computes hourly averages, ranks top processes,
@@ -439,8 +439,8 @@ def write_atomic_json(data: Dict[str, Any], target_path: str) -> None:
 
 
 def main() -> None:
-    """CLI entrypoint conforming to INTERFACES.md section 8."""
-    parser = argparse.ArgumentParser(description="SysMon Analyzer (P1)")
+    """CLI entrypoint for analyzer."""
+    parser = argparse.ArgumentParser(description="SysMon Analyzer")
     parser.add_argument(
         "--input",
         default="data/clean/metrics.csv",

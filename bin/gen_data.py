@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Synthetic raw data generator for SysMon (owner: P5).
+"""Synthetic raw data generator for SysMon.
 
-Writes data in the exact collector format from docs/INTERFACES.md section 3:
+Writes data in the standard collector format:
   metrics_YYYYMMDD.csv   (16 columns, one row per sample)
   processes_YYYYMMDD.csv (top 5 processes per sample)
 

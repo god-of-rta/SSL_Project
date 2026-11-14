@@ -1,4 +1,4 @@
-"""Tests for bin/gen_data.py and Section 10 test fixtures."""
+"""Tests for bin/gen_data.py and test fixtures."""
 
 import csv
 import filecmp
