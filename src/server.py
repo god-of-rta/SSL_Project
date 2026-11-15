@@ -459,6 +459,104 @@ def ack_alerts():
     atomic_write_json(acks_path, {"acknowledged_ids": sorted(list(existing_acks))})
     return jsonify({"ok": True})
 
+@app.route('/api/alerts/resolve', methods=['POST'])
+def resolve_alerts():
+    """Mark firing alerts as resolved by ID or all firing alerts."""
+    req_data, err = parse_json_object()
+    if err:
+        return err
+
+    if 'all' in req_data and not isinstance(req_data['all'], bool):
+        return error_response("all must be a boolean", 400, field="all")
+    if 'ids' in req_data:
+        ids_val = req_data['ids']
+        if not isinstance(ids_val, list) or not all(is_strict_int(x) for x in ids_val):
+            return error_response("ids must be a list of integers", 400, field="ids")
+
+    resolve_all = req_data.get('all') is True
+    target_ids = set(req_data.get('ids') or [])
+
+    if not resolve_all and 'ids' not in req_data:
+        return error_response("Must provide 'ids' or 'all'", 400)
+
+    alerts_path = get_file_path('alerts.csv')
+    if not os.path.exists(alerts_path):
+        return jsonify({"ok": True, "resolved": 0, "resolved_count": 0, "remaining_firing": 0})
+
+    header = ["id", "epoch", "iso_time", "rule", "metric", "value", "threshold",
+              "severity", "state", "process", "acknowledged"]
+    updated_rows = []
+    resolved_count = 0
+    resolved_rules = set()
+
+    try:
+        with open(alerts_path, 'r', encoding='utf-8', errors='replace') as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames or header
+            for row in reader:
+                st = (row.get('state') or '').strip().lower()
+                row_id_str = row.get('id', '')
+                try:
+                    row_id = int(row_id_str)
+                except (ValueError, TypeError):
+                    row_id = None
+
+                should_resolve = False
+                if st == 'firing':
+                    if resolve_all:
+                        should_resolve = True
+                    elif row_id is not None and row_id in target_ids:
+                        should_resolve = True
+
+                if should_resolve:
+                    row['state'] = 'resolved'
+                    resolved_count += 1
+                    if row.get('rule'):
+                        resolved_rules.add(row['rule'])
+
+                updated_rows.append(row)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Failed to read alerts: {e}"}), 500
+
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=fieldnames, lineterminator='\n')
+    writer.writeheader()
+    for r in updated_rows:
+        writer.writerow(r)
+
+    atomic_write_text(alerts_path, out.getvalue())
+
+    # Update alert_state.json for rules that are no longer firing
+    state_path = get_file_path('alert_state.json')
+    if os.path.exists(state_path) and (resolve_all or resolved_rules):
+        try:
+            with open(state_path, 'r', encoding='utf-8') as f:
+                st = json.load(f)
+            if isinstance(st, dict) and "rules" in st and isinstance(st["rules"], dict):
+                still_firing_rules = {
+                    r.get('rule') for r in updated_rows
+                    if (r.get('state') or '').strip().lower() == 'firing' and r.get('rule')
+                }
+                rules_to_reset = (
+                    set(st["rules"].keys()) if resolve_all
+                    else (resolved_rules - still_firing_rules)
+                )
+                for rname in rules_to_reset:
+                    if rname in st["rules"] and isinstance(st["rules"][rname], dict):
+                        st["rules"][rname]["state"] = "ok"
+                        st["rules"][rname]["consecutive"] = 0
+                atomic_write_json(state_path, st)
+        except Exception:
+            pass
+
+    remaining_firing = sum(1 for r in updated_rows if (r.get('state') or '').strip().lower() == 'firing')
+    return jsonify({
+        "ok": True,
+        "resolved": resolved_count,
+        "resolved_count": resolved_count,
+        "remaining_firing": remaining_firing
+    })
+
 @app.route('/api/alerts/test', methods=['POST'])
 def test_alert():
     alerts_script = os.path.join(BASE_DIR, 'src', 'alerts.py')

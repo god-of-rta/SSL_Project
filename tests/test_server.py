@@ -2,6 +2,7 @@ import pytest
 import sys
 import os
 import json
+import csv
 import tempfile
 from unittest.mock import patch
 
@@ -227,3 +228,106 @@ def test_alerts_toggle(client):
     res2 = client.post('/api/alerts/toggle')
     assert res2.status_code == 200
     assert res2.get_json()["alerts_enabled"] is True
+
+
+def test_alerts_resolve_single_id(client, tmp_path):
+    """Test resolving a specific alert ID and verifying alert_state.json synchronization."""
+    alerts_file = tmp_path / "alerts.csv"
+    alerts_file.write_text(
+        "id,epoch,iso_time,rule,metric,value,threshold,severity,state,process,acknowledged\n"
+        "1,100,2026-11-14T00:00:00Z,cpu_high,cpu_pct,90,85,warning,firing,bash,0\n"
+        "2,105,2026-11-14T00:00:05Z,mem_high,mem_pct,88,80,critical,firing,python,0\n"
+    )
+    state_file = tmp_path / "alert_state.json"
+    state_file.write_text(json.dumps({
+        "last_epoch": 105,
+        "rules": {
+            "cpu_high": {"state": "firing", "consecutive": 5, "last_fired_epoch": 100},
+            "mem_high": {"state": "firing", "consecutive": 3, "last_fired_epoch": 105}
+        }
+    }))
+
+    with patch('src.server.get_file_path', side_effect=lambda f: str(tmp_path / f)):
+        res = client.post('/api/alerts/resolve', json={"ids": [1]})
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["ok"] is True
+        assert data["resolved"] == 1
+        assert data["remaining_firing"] == 1
+
+        # Verify CSV updated
+        rows = list(csv.DictReader(alerts_file.open()))
+        assert rows[0]["id"] == "1" and rows[0]["state"] == "resolved"
+        assert rows[1]["id"] == "2" and rows[1]["state"] == "firing"
+
+        # Verify state JSON synced: cpu_high reset, mem_high remains firing
+        st = json.loads(state_file.read_text())
+        assert st["rules"]["cpu_high"]["state"] == "ok"
+        assert st["rules"]["cpu_high"]["consecutive"] == 0
+        assert st["rules"]["mem_high"]["state"] == "firing"
+
+
+def test_alerts_resolve_all(client, tmp_path):
+    """Test resolving all firing alerts."""
+    alerts_file = tmp_path / "alerts.csv"
+    alerts_file.write_text(
+        "id,epoch,iso_time,rule,metric,value,threshold,severity,state,process,acknowledged\n"
+        "1,100,2026-11-14T00:00:00Z,cpu_high,cpu_pct,90,85,warning,firing,bash,0\n"
+        "2,105,2026-11-14T00:00:05Z,mem_high,mem_pct,88,80,critical,firing,python,0\n"
+        "3,110,2026-11-14T00:00:10Z,disk_high,disk_pct,95,90,critical,resolved,systemd,0\n"
+    )
+    state_file = tmp_path / "alert_state.json"
+    state_file.write_text(json.dumps({
+        "last_epoch": 110,
+        "rules": {
+            "cpu_high": {"state": "firing", "consecutive": 5},
+            "mem_high": {"state": "firing", "consecutive": 3}
+        }
+    }))
+
+    with patch('src.server.get_file_path', side_effect=lambda f: str(tmp_path / f)):
+        res = client.post('/api/alerts/resolve', json={"all": True})
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["ok"] is True
+        assert data["resolved"] == 2
+        assert data["remaining_firing"] == 0
+
+        # Verify all rows in CSV are resolved
+        rows = list(csv.DictReader(alerts_file.open()))
+        assert all(r["state"] == "resolved" for r in rows)
+
+        # Verify all rules reset in state JSON
+        st = json.loads(state_file.read_text())
+        assert st["rules"]["cpu_high"]["state"] == "ok"
+        assert st["rules"]["mem_high"]["state"] == "ok"
+
+
+def test_alerts_resolve_validation(client, tmp_path):
+    """Test payload validation on /api/alerts/resolve."""
+    with patch('src.server.get_file_path', side_effect=lambda f: str(tmp_path / f)):
+        # Missing both ids and all
+        res = client.post('/api/alerts/resolve', json={})
+        assert res.status_code == 400
+        assert "ids" in res.get_json()["error"] or "all" in res.get_json()["error"]
+
+        # Invalid 'all' type
+        res2 = client.post('/api/alerts/resolve', json={"all": "true"})
+        assert res2.status_code == 400
+        assert "boolean" in res2.get_json()["error"]
+
+        # Invalid 'ids' type
+        res3 = client.post('/api/alerts/resolve', json={"ids": "not_a_list"})
+        assert res3.status_code == 400
+        assert "list of integers" in res3.get_json()["error"]
+
+        # List with non-integers
+        res4 = client.post('/api/alerts/resolve', json={"ids": [1, "two"]})
+        assert res4.status_code == 400
+        assert "list of integers" in res4.get_json()["error"]
+
+        # Missing alerts.csv file
+        res5 = client.post('/api/alerts/resolve', json={"all": True})
+        assert res5.status_code == 200
+        assert res5.get_json()["resolved"] == 0
+        assert res5.get_json()["remaining_firing"] == 0

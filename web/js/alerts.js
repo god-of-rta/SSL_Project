@@ -22,6 +22,7 @@ function renderSummary() {
     alertList.forEach((a) => { if (!latest.has(a.rule)) latest.set(a.rule, a); });
 
     const firing = [...latest.values()].filter((a) => a.state === "firing").length;
+    const totalFiring = alertList.filter((a) => a.state === "firing").length;
     const unack = alertList.filter((a) => a.state === "firing" && !a.acknowledged).length;
 
     $("firingCount").textContent = firing;
@@ -29,6 +30,8 @@ function renderSummary() {
     $("totalCount").textContent = alertList.length;
     $("firingLevel").className = `level-dot ${firing ? "crit" : "ok"}`;
     $("ackAll").disabled = unack === 0;
+    const resolveAllBtn = $("resolveAll");
+    if (resolveAllBtn) resolveAllBtn.disabled = totalFiring === 0;
 }
 
 function renderTable() {
@@ -57,8 +60,8 @@ function renderTable() {
         const action = a.state !== "firing"
             ? ""
             : a.acknowledged
-                ? `<span class="acked">${icon("check", 16)} Acknowledged</span>`
-                : `<button class="btn btn-quiet btn-sm" data-ack="${a.id}" type="button">Acknowledge</button>`;
+                ? `<span class="acked">${icon("check", 16)} Acknowledged</span> <button class="btn btn-quiet btn-sm" data-resolve="${a.id}" type="button">Resolve</button>`
+                : `<button class="btn btn-quiet btn-sm" data-ack="${a.id}" type="button">Acknowledge</button> <button class="btn btn-quiet btn-sm" data-resolve="${a.id}" type="button">Resolve</button>`;
 
         return `
             <tr class="alert-row${resolved ? " is-resolved" : ""}">
@@ -105,11 +108,39 @@ $("alertTable").addEventListener("click", async (event) => {
     });
 });
 
+// Resolve one alert (event delegation on the table)
+$("alertTable").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-resolve]");
+    if (!button) return;
+
+    await withBusy(button, async () => {
+        try {
+            await post("/api/alerts/resolve", { ids: [Number(button.dataset.resolve)] });
+            showToast("Alert resolved.", "success");
+            await refreshAlerts();
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    });
+});
+
 $("ackAll").addEventListener("click", async () => {
     await withBusy($("ackAll"), async () => {
         try {
             await post("/api/alerts/ack", { all: true });
             showToast("All alerts acknowledged.", "success");
+            await refreshAlerts();
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    });
+});
+
+$("resolveAll")?.addEventListener("click", async () => {
+    await withBusy($("resolveAll"), async () => {
+        try {
+            const res = await post("/api/alerts/resolve", { all: true });
+            showToast(`Resolved ${res.resolved ?? 0} alert${res.resolved === 1 ? "" : "s"}.`, "success");
             await refreshAlerts();
         } catch (error) {
             showToast(error.message, "error");
