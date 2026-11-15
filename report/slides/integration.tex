@@ -1,4 +1,19 @@
-\section{Integration and Profiling}
+\section{Alerting and Profiling}
+
+\begin{frame}{Real-Time Alert Engine (\texttt{src/alerts.py})}
+    \begin{itemize}
+        \setlength{\itemsep}{11pt}
+        \item \textbf{What It Is:} A lightweight tool that monitors system health (CPU, RAM, temperatures) and notifies you when safety limits are exceeded.
+        \item \textbf{How It Works:} Only alerts if high load lasts for several readings in a row (ignoring brief spikes), uses cooldowns to avoid spam, and auto-resolves when levels return to normal.
+        \item \textbf{Topics Covered:}
+        \begin{itemize}
+            \setlength{\itemsep}{4pt}
+            \item \textbf{Finding the Culprit:} Identifies which app or process is causing the spike.
+            \item \textbf{Smart Data Handling:} Ignores cleaner gap-fills to prevent false alarms.
+            \item \textbf{Alert Channels:} Sends desktop popups and updates the web dashboard in real time.
+        \end{itemize}
+    \end{itemize}
+\end{frame}
 
 \begin{frame}{Performance Profiling and Hardware Optimizations}
     \begin{itemize}
