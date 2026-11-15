@@ -129,9 +129,9 @@ function updateCards(data, system) {
         const value = lastValue(values);
         const empty = value === null;
 
-        $(`${card.key}Value`).textContent = empty
+        animateNumber($(`${card.key}Value`), empty
             ? (card.key === "gpu" || card.key === "temperature" ? "n/a" : "--")
-            : fmt(value, card.key === "load" ? 2 : 1);
+            : fmt(value, card.key === "load" ? 2 : 1));
 
         const dot = $(`${card.key}Level`);
         if (dot) dot.className = `level-dot ${levelFor(value, card.warn, card.crit)}`;
@@ -200,13 +200,14 @@ function updateChart(data) {
     const valid = values.filter((v) => v !== null);
     const average = valid.reduce((a, b) => a + b, 0) / valid.length;
 
-    chart.innerHTML = buckets.map((b) => {
+    chart.innerHTML = buckets.map((b, i) => {
         if (b.value === null) return '<div class="bar"></div>';
         const level = b.value >= 90 ? "crit" : b.value >= 75 ? "warn" : "";
         const height = Math.max(3, Math.min(100, b.value));
-        return `<div class="bar ${level}" title="${escapeHTML(timeLabel(b.epoch, range))}: ${b.value.toFixed(1)}%">` +
+        return `<div class="bar ${level}" style="--i:${i}" title="${escapeHTML(timeLabel(b.epoch, range))}: ${b.value.toFixed(1)}%">` +
             `<i style="height:${height}%"></i></div>`;
     }).join("");
+    playOnce(chart, `${activeMetric}|${range}`);
 
     chart.setAttribute("aria-label",
         `${name} usage over the ${RANGE_NAMES[range]}, average ${average.toFixed(1)} percent`);
@@ -262,6 +263,7 @@ function processRows(list) {
 function updateProcesses(stats) {
     const list = Array.isArray(stats?.top_processes) ? stats.top_processes.slice(0, 5) : [];
     $("topProcesses").innerHTML = processRows(list);
+    playOnce($("topProcesses"), "first");
 }
 
 
@@ -305,6 +307,9 @@ function updateHealth(status, system) {
     const sampleAge = collector.last_sample_epoch
         ? Date.now() / 1000 - collector.last_sample_epoch : null;
     const stale = running && sampleAge !== null && sampleAge > 90;
+
+    collectorState.running = running;
+    syncCollectorButtons();
 
     $("collectorStatus").textContent = running ? "Running" : "Stopped";
     $("healthCollector").textContent = running ? `Running (PID ${collector.pid ?? "?"})` : "Stopped";
@@ -392,7 +397,7 @@ async function loadDashboard() {
 // --------------------------------------------------
 
 async function runAction(button, path, success) {
-    await withBusy(button, async () => {
+    await withCollectorLock(path, () => withBusy(button, async () => {
         if (button.dataset.busyLabel) button.textContent = button.dataset.busyLabel;
         try {
             await post(path);
@@ -401,13 +406,14 @@ async function runAction(button, path, success) {
         } catch (error) {
             console.error(error);
             showToast(error.message || "Action failed. Check the backend connection.", "error");
+            return false;
         }
-    });
+    }));
 }
 
 [
-    ["startCollector", "/api/collector/start", "Collector started.", null],
-    ["stopCollector", "/api/collector/stop", "Collector stopped.", null],
+    ["startCollector", "/api/collector/start", "Collector started.", "Starting…"],
+    ["stopCollector", "/api/collector/stop", "Collector stopped.", "Stopping…"],
     ["sendTestAlert", "/api/alerts/test", "Test alert sent.", null],
     ["refreshAnalysis", "/api/pipeline/run", "Analysis finished.", "Running…"]
 ].forEach(([id, path, message, busy]) => {

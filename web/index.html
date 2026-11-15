@@ -38,6 +38,49 @@
                 </div>
             </header>
 
+            <!-- HEALTH -->
+            <section class="panel health-panel">
+                <div class="panel-heading">
+                    <h2>System health</h2>
+                    <span class="stat-meta" id="lastUpdated" style="padding:0">Not updated yet</span>
+                </div>
+
+                <div class="health-body">
+                    <div class="health-status" id="healthStatus">
+                        <span class="health-status-dot"></span>
+                        <div>
+                            <strong>Awaiting data</strong>
+                            <small>Backend connection required</small>
+                        </div>
+                    </div>
+
+                    <dl class="kv">
+                        <dt>Collector</dt>
+                        <dd id="healthCollector">Unknown</dd>
+                        <dt>Last sample</dt>
+                        <dd id="healthSample">—</dd>
+                    </dl>
+                    <dl class="kv">
+                        <dt>Analysis pipeline</dt>
+                        <dd id="healthPipeline">—</dd>
+                        <dt>Host</dt>
+                        <dd id="healthHost">—</dd>
+                    </dl>
+                    <dl class="kv">
+                        <dt>Processor</dt>
+                        <dd id="healthCores">—</dd>
+                        <dt>Operating system</dt>
+                        <dd id="healthOS">—</dd>
+                    </dl>
+                </div>
+
+                <div class="health-actions">
+                    <button class="btn btn-primary" id="startCollector" type="button">Start collector</button>
+                    <button class="btn btn-quiet" id="stopCollector" type="button">Stop collector</button>
+                    <button class="btn btn-quiet" id="sendTestAlert" type="button">Send test alert</button>
+                </div>
+            </section>
+
             <!-- FILTER PILLS -->
             <section class="pill-row" aria-label="Dashboard controls">
                 <label class="pill">
@@ -193,49 +236,6 @@
                         </table>
                     </div>
                 </article>
-            </section>
-
-            <!-- HEALTH -->
-            <section class="panel">
-                <div class="panel-heading">
-                    <h2>System health</h2>
-                    <span class="stat-meta" id="lastUpdated" style="padding:0">Not updated yet</span>
-                </div>
-
-                <div class="health-body">
-                    <div class="health-status" id="healthStatus">
-                        <span class="health-status-dot"></span>
-                        <div>
-                            <strong>Awaiting data</strong>
-                            <small>Backend connection required</small>
-                        </div>
-                    </div>
-
-                    <dl class="kv">
-                        <dt>Collector</dt>
-                        <dd id="healthCollector">Unknown</dd>
-                        <dt>Last sample</dt>
-                        <dd id="healthSample">—</dd>
-                    </dl>
-                    <dl class="kv">
-                        <dt>Analysis pipeline</dt>
-                        <dd id="healthPipeline">—</dd>
-                        <dt>Host</dt>
-                        <dd id="healthHost">—</dd>
-                    </dl>
-                    <dl class="kv">
-                        <dt>Processor</dt>
-                        <dd id="healthCores">—</dd>
-                        <dt>Operating system</dt>
-                        <dd id="healthOS">—</dd>
-                    </dl>
-                </div>
-
-                <div class="health-actions">
-                    <button class="btn btn-primary" id="startCollector" type="button">Start collector</button>
-                    <button class="btn btn-quiet" id="stopCollector" type="button">Stop collector</button>
-                    <button class="btn btn-quiet" id="sendTestAlert" type="button">Send test alert</button>
-                </div>
             </section>
 
             <footer class="page-footer">

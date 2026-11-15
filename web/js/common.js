@@ -4,8 +4,8 @@
  * connection status and the alert badge.
  */
 
-// Use same-origin relative URLs when served by Flask; fall back for file:// previews.
-const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:5000" : "";
+// Change this if your Flask backend uses another port.
+const API_BASE = "http://127.0.0.1:5000";
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,21 +30,15 @@ async function apiRequest(path, options = {}) {
         throw error;
     }
 
-    if (response.status === 204) return null;
-
-    const data = await response.json();
-    if (data && data.ok === false) {
-        const error = new Error(data.error || "API request failed");
-        error.field = data.field;
-        error.status = response.status;
-        throw error;
-    }
-
-    return data;
+    return response.status === 204 ? null : response.json();
 }
 
 const post = (path, body = {}) =>
-    apiRequest(path, { method: "POST", body: JSON.stringify(body) });
+    apiRequest(path, { method: "POST", body: JSON.stringify(body) })
+        .then((result) => {
+            if (path === "/api/alerts/test") playAlertRing();
+            return result;
+        });
 
 
 // --------------------------------------------------
@@ -209,8 +203,10 @@ function renderSidebar() {
         if (typeof window.loadTrends === "function") window.loadTrends();
     });
 
+    initNavIndicator();
+
     mount.querySelectorAll(".rail-btn[data-path]").forEach((button) => {
-        button.addEventListener("click", () => withBusy(button, async () => {
+        button.addEventListener("click", () => withCollectorLock(button.dataset.path, () => withBusy(button, async () => {
             try {
                 await post(button.dataset.path);
                 showToast(button.dataset.ok, "success");
@@ -218,8 +214,9 @@ function renderSidebar() {
             } catch (error) {
                 console.error(error);
                 showToast(error.message || "Action failed. Check the backend connection.", "error");
+                return false;
             }
-        }));
+        })));
     });
 }
 
@@ -242,6 +239,214 @@ function initGlassLight() {
             card.style.setProperty("--my", `${event.clientY - box.top}px`);
         });
     }, { passive: true });
+}
+
+// --------------------------------------------------
+// MOTION HELPERS
+// --------------------------------------------------
+
+const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+// Counts a number up/down to its new value instead of jumping.
+function animateNumber(el, text) {
+    if (!el) return;
+
+    const target = parseFloat(text);
+    if (REDUCED_MOTION.matches || Number.isNaN(target) || !/^-?\d/.test(String(text))) {
+        cancelAnimationFrame(el._raf);
+        el._n = Number.isNaN(target) ? undefined : target;
+        el.textContent = text;
+        return;
+    }
+
+    const decimals = (String(text).split(".")[1] || "").length;
+    const from = el._n ?? 0;
+    const began = performance.now();
+    const duration = 900;
+
+    cancelAnimationFrame(el._raf);
+    const step = (now) => {
+        const t = Math.min(1, (now - began) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = (from + (target - from) * eased).toFixed(decimals);
+        if (t < 1) el._raf = requestAnimationFrame(step);
+    };
+    el._n = target;
+    el._raf = requestAnimationFrame(step);
+}
+
+// Plays an entrance animation the first time (or when the signature changes),
+// so lists redrawn by auto-refresh do not replay it every few seconds.
+function playOnce(el, signature) {
+    if (!el || el.dataset.played === signature) return;
+    el.dataset.played = signature;
+    el.classList.add("grow");
+    clearTimeout(el._growTimer);
+    el._growTimer = setTimeout(() => el.classList.remove("grow"), 2200);
+}
+
+// Sliding highlight behind the active nav pill; it glides from the
+// previous page's position so page changes feel continuous.
+function initNavIndicator() {
+    const nav = document.querySelector(".pillnav");
+    const active = nav && nav.querySelector(".pill-link.active");
+    if (!active) return;
+
+    const bar = document.createElement("span");
+    bar.className = "pill-indicator";
+    nav.prepend(bar);
+
+    const place = (left, width) => {
+        bar.style.transform = `translateX(${left}px)`;
+        bar.style.width = `${width}px`;
+    };
+
+    const left = active.offsetLeft, width = active.offsetWidth;
+    let previous = null;
+    try { previous = JSON.parse(sessionStorage.getItem("sysmon-nav")); } catch (error) { /* ignore */ }
+
+    if (previous && previous.w && !REDUCED_MOTION.matches) {
+        bar.style.transition = "none";
+        place(previous.l, previous.w);
+        bar.getBoundingClientRect();
+        bar.style.transition = "";
+        requestAnimationFrame(() => place(left, width));
+    } else {
+        place(left, width);
+    }
+
+    const remember = () => {
+        try {
+            sessionStorage.setItem("sysmon-nav", JSON.stringify({ l: active.offsetLeft, w: active.offsetWidth }));
+        } catch (error) { /* ignore */ }
+    };
+    remember();
+
+    // The alert badge appears after load and the window can be resized,
+    // so keep the indicator locked onto the active link.
+    if ("ResizeObserver" in window) {
+        const follow = () => { place(active.offsetLeft, active.offsetWidth); remember(); };
+        const observer = new ResizeObserver(follow);
+        observer.observe(nav);
+        observer.observe(active);
+    }
+}
+
+// Material-style ripple on buttons.
+function initRipple() {
+    document.addEventListener("pointerdown", (event) => {
+        const button = event.target.closest && event.target.closest(".btn");
+        if (!button || button.disabled || REDUCED_MOTION.matches) return;
+
+        const box = button.getBoundingClientRect();
+        const size = Math.max(box.width, box.height) * 2;
+        const ripple = document.createElement("span");
+        ripple.className = "ripple";
+        ripple.style.width = ripple.style.height = `${size}px`;
+        ripple.style.left = `${event.clientX - box.left - size / 2}px`;
+        ripple.style.top = `${event.clientY - box.top - size / 2}px`;
+        button.appendChild(ripple);
+        ripple.addEventListener("animationend", () => ripple.remove());
+    });
+}
+
+// --------------------------------------------------
+// COLLECTOR BUTTON LOCKING
+// Start/Stop are disabled while a request is running, and the one that
+// does not apply to the current state stays disabled.
+// --------------------------------------------------
+
+const collectorState = { running: null, busy: false };
+
+function syncCollectorButtons() {
+    const { running, busy } = collectorState;
+    const lock = (selector, disabled) => document.querySelectorAll(selector).forEach((button) => {
+        button.disabled = disabled;
+        if (button.tagName === "BUTTON" && button.classList.contains("btn")) {
+            button.title = disabled && !busy
+                ? (selector.includes("start") ? "The collector is already running" : "The collector is not running")
+                : "";
+        }
+    });
+
+    lock('#startCollector, .rail-btn[data-path="/api/collector/start"]', busy || running === true);
+    lock('#stopCollector, .rail-btn[data-path="/api/collector/stop"]', busy || running === false);
+}
+
+// Wraps a collector action so both buttons stay locked until it finishes.
+async function withCollectorLock(path, task) {
+    const isCollector = path.startsWith("/api/collector/");
+    if (isCollector) {
+        collectorState.busy = true;
+        syncCollectorButtons();
+    }
+
+    try {
+        const result = await task();
+        if (isCollector && result !== false) collectorState.running = path.endsWith("/start");
+        return result;
+    } finally {
+        if (isCollector) collectorState.busy = false;
+        syncCollectorButtons();
+    }
+}
+
+// --------------------------------------------------
+// TEST-ALERT RING (bell tone synthesised in the browser, no audio file)
+// --------------------------------------------------
+
+let audioCtx = null;
+
+function audioContext() {
+    if (!audioCtx) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return null;
+        audioCtx = new Ctx();
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    return audioCtx;
+}
+
+// Browsers only allow sound after a user gesture, so prepare on first touch.
+["pointerdown", "keydown"].forEach((name) =>
+    document.addEventListener(name, audioContext, { once: true, passive: true }));
+
+function bellStrike(ctx, out, start) {
+    const base = 880;
+    // inharmonic partials give a bell-like timbre
+    [[1, 1], [2.01, .55], [2.76, .38], [5.4, .2], [8.93, .09]].forEach(([ratio, level]) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const decay = 1.5 / Math.sqrt(ratio);
+
+        osc.type = "sine";
+        osc.frequency.value = base * ratio;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(level, start + 0.006);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + decay);
+
+        osc.connect(gain).connect(out);
+        osc.start(start);
+        osc.stop(start + decay + 0.05);
+    });
+}
+
+function playAlertRing() {
+    // wiggle the bell icons while it rings
+    document.querySelectorAll('.rail-btn[data-path="/api/alerts/test"], #sendTestAlert').forEach((button) => {
+        button.classList.add("ringing");
+        setTimeout(() => button.classList.remove("ringing"), 1700);
+    });
+
+    const ctx = audioContext();
+    if (!ctx) return;
+
+    const master = ctx.createGain();
+    master.gain.value = 0.3;
+    master.connect(ctx.destination);
+
+    const now = ctx.currentTime + 0.02;
+    [0, 0.5, 1.0].forEach((offset) => bellStrike(ctx, master, now + offset));
 }
 
 // Re-fetch whatever the current page shows after a quick action.
@@ -362,5 +567,6 @@ async function withBusy(button, task) {
 // Scripts sit at the end of <body>, so the sidebar mount already exists.
 renderSidebar();
 initGlassLight();
+initRipple();
 refreshAlerts();
 setInterval(refreshAlerts, 15000);
