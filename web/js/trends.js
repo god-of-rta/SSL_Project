@@ -288,7 +288,7 @@ function renderNetworkChart(data) {
 function renderStatistics(stats) {
     const body = document.getElementById("statisticsBody");
     const windows = stats.windows || {};
-    const selected = windows[selectedRange] || (selectedRange === "7d" ? windows.all : null);
+    const selected = windows[selectedRange];
 
     document.getElementById("statisticsRange").textContent =
         selectedRange === "1h" ? "Last 1 hour" :
