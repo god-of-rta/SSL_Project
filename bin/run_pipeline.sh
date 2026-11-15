@@ -174,7 +174,17 @@ fi
 
 # Stage 3: Alerts
 if [ "$STAGE_OK" = true ]; then
-    if [ -f "$ROOT_DIR/src/alerts.py" ]; then
+    ALERTS_ENABLED=true
+    if [ -f "$CONFIG_DIR/sysmon.conf" ]; then
+        CONF_ALERTS=$(grep -E "^\s*alerts_enabled\s*=" "$CONFIG_DIR/sysmon.conf" | tail -n1 | cut -d'=' -f2 | tr -d ' ' || true)
+        if [ "$CONF_ALERTS" = "false" ]; then
+            ALERTS_ENABLED=false
+        fi
+    fi
+
+    if [ "$ALERTS_ENABLED" = false ]; then
+        echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Alerts stage skipped (alerts_enabled = false in sysmon.conf)" >> "$LOG_FILE"
+    elif [ -f "$ROOT_DIR/src/alerts.py" ]; then
         echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] Running alerts..." >> "$LOG_FILE"
         THRESHOLDS_CONF="$CONFIG_DIR/thresholds.conf"
         if [ ! -f "$THRESHOLDS_CONF" ]; then

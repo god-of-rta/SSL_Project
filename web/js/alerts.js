@@ -129,5 +129,44 @@ $("sendTestAlert").addEventListener("click", async () => {
     });
 });
 
+$("clearAlerts").addEventListener("click", async () => {
+    if (!confirm("Clear resolved alerts from history? Active firing alerts will be kept.")) return;
+    await withBusy($("clearAlerts"), async () => {
+        try {
+            const res = await post("/api/alerts/clear", { scope: "resolved" });
+            showToast(`Cleared ${res.cleared ?? 0} resolved alerts.`, "success");
+            await refreshAlerts();
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    });
+});
+
+async function updateAlertsToggleUI() {
+    try {
+        const cfg = await apiRequest("/api/config");
+        const enabled = cfg?.sysmon?.alerts_enabled !== false;
+        const btn = $("toggleAlerts");
+        if (btn) {
+            btn.textContent = enabled ? "Pause alerts" : "Resume alerts";
+            btn.title = enabled ? "Mute alert engine (stop new alerts from firing)" : "Resume alert engine";
+        }
+    } catch (_) {}
+}
+
+$("toggleAlerts").addEventListener("click", async () => {
+    await withBusy($("toggleAlerts"), async () => {
+        try {
+            const res = await post("/api/alerts/toggle");
+            showToast(res.alerts_enabled ? "Alerts resumed." : "Alerts paused (muted).", "success");
+            await updateAlertsToggleUI();
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    });
+});
+
+updateAlertsToggleUI();
+
 // common.js may have fetched before this listener was attached
 if (latestAlerts.length) render(latestAlerts);

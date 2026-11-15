@@ -194,3 +194,36 @@ def test_config_retention_hours_validation_and_persistence(client):
 
     cfg = client.get('/api/config').get_json()
     assert cfg["sysmon"]["retention_hours"] == 0
+
+
+def test_alerts_clear(client, tmp_path):
+    """Test clearing resolved alerts and clearing all alerts."""
+    alerts_file = tmp_path / "alerts.csv"
+    alerts_file.write_text(
+        "id,epoch,iso_time,rule,metric,value,threshold,severity,state,process,acknowledged\n"
+        "1,100,2026-11-14T00:00:00Z,cpu_high,cpu_pct,90,85,warning,firing,bash,0\n"
+        "2,105,2026-11-14T00:00:05Z,cpu_high,cpu_pct,40,85,warning,resolved,bash,0\n"
+    )
+    with patch('src.server.get_file_path', side_effect=lambda f: str(tmp_path / f)):
+        # Clear resolved
+        res = client.post('/api/alerts/clear', json={"scope": "resolved"})
+        assert res.status_code == 200
+        assert res.get_json()["cleared"] == 1
+        assert res.get_json()["remaining"] == 1
+
+        # Clear all
+        res_all = client.post('/api/alerts/clear', json={"scope": "all"})
+        assert res_all.status_code == 200
+        assert res_all.get_json()["cleared"] == 1
+        assert res_all.get_json()["remaining"] == 0
+
+
+def test_alerts_toggle(client):
+    """Test toggling alerts_enabled state."""
+    res1 = client.post('/api/alerts/toggle', json={"enabled": False})
+    assert res1.status_code == 200
+    assert res1.get_json()["alerts_enabled"] is False
+
+    res2 = client.post('/api/alerts/toggle')
+    assert res2.status_code == 200
+    assert res2.get_json()["alerts_enabled"] is True

@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, send_from_directory
 import subprocess
 import json
 import csv
+import io
 import os
 import sys
 import math
@@ -109,6 +110,21 @@ def atomic_write_config(filepath, config_parser):
         if temp_name and os.path.exists(temp_name):
             os.remove(temp_name)
 
+def atomic_write_text(filepath, text):
+    """Writes raw text files atomically with guaranteed temp file cleanup."""
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    dir_name = os.path.dirname(filepath)
+    temp_name = None
+    try:
+        with tempfile.NamedTemporaryFile('w', dir=dir_name, delete=False, encoding='utf-8') as tf:
+            tf.write(text)
+            temp_name = tf.name
+        os.replace(temp_name, filepath)
+        temp_name = None
+    finally:
+        if temp_name and os.path.exists(temp_name):
+            os.remove(temp_name)
+
 # --- Error Handlers ---
 
 @app.errorhandler(404)
@@ -127,6 +143,8 @@ def internal_error(e):
 # --- Static File Serving ---
 
 @app.route('/')
+@app.route('/dashboard')
+@app.route('/dashboard.html')
 def serve_index():
     return send_from_directory(app.static_folder, 'index.html')
 
@@ -457,6 +475,89 @@ def test_alert():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
+@app.route('/api/alerts/clear', methods=['POST'])
+def clear_alerts():
+    """Clear alerts history. scope='resolved' removes resolved alerts; scope='all' resets all."""
+    req_data = {}
+    if request.is_json and request.data:
+        parsed, err = parse_json_object()
+        if err:
+            return err
+        req_data = parsed
+
+    scope = req_data.get('scope', 'resolved')
+    if scope not in ('resolved', 'all'):
+        return error_response("scope must be 'resolved' or 'all'", 400, field="scope")
+
+    alerts_path = get_file_path('alerts.csv')
+    if not os.path.exists(alerts_path):
+        return jsonify({"ok": True, "cleared": 0, "remaining": 0})
+
+    header = ["id", "epoch", "iso_time", "rule", "metric", "value", "threshold",
+              "severity", "state", "process", "acknowledged"]
+    remaining_rows = []
+    cleared_count = 0
+
+    try:
+        with open(alerts_path, 'r', encoding='utf-8', errors='replace') as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames or header
+            for row in reader:
+                st = (row.get('state') or '').strip().lower()
+                if scope == 'resolved' and st == 'resolved':
+                    cleared_count += 1
+                elif scope == 'all':
+                    cleared_count += 1
+                else:
+                    remaining_rows.append(row)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Failed to read alerts: {e}"}), 500
+
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=fieldnames, lineterminator='\n')
+    writer.writeheader()
+    for r in remaining_rows:
+        writer.writerow(r)
+
+    atomic_write_text(alerts_path, out.getvalue())
+
+    if scope == 'all':
+        acks_path = get_file_path('acks.json')
+        if os.path.exists(acks_path):
+            atomic_write_json(acks_path, {"acknowledged_ids": []})
+        state_path = get_file_path('alert_state.json')
+        if os.path.exists(state_path):
+            atomic_write_json(state_path, {"last_epoch": None, "rules": {}})
+
+    return jsonify({"ok": True, "cleared": cleared_count, "remaining": len(remaining_rows)})
+
+@app.route('/api/alerts/toggle', methods=['POST'])
+def toggle_alerts():
+    """Toggle alerts_enabled between True and False."""
+    req_data = {}
+    if request.is_json and request.data:
+        parsed, err = parse_json_object()
+        if err:
+            return err
+        req_data = parsed
+
+    sysmon_path = os.path.join(CONFIG_DIR, 'sysmon.conf')
+    cfg = configparser.ConfigParser(interpolation=None)
+    if os.path.exists(sysmon_path):
+        cfg.read(sysmon_path)
+    if not cfg.has_section('sysmon'):
+        cfg.add_section('sysmon')
+
+    cur_enabled = cfg['sysmon'].getboolean('alerts_enabled', fallback=True)
+    if 'enabled' in req_data:
+        new_enabled = bool(req_data['enabled'])
+    else:
+        new_enabled = not cur_enabled
+
+    cfg['sysmon']['alerts_enabled'] = str(new_enabled).lower()
+    atomic_write_config(sysmon_path, cfg)
+    return jsonify({"ok": True, "alerts_enabled": new_enabled})
+
 # --- Collector & Pipeline Control Endpoints ---
 
 @app.route('/api/collector/start', methods=['POST'])
@@ -551,7 +652,8 @@ def get_config():
         "simulate_temp": False,
         "collect_gpu": True,
         "gpu_poll_every": 3,
-        "retention_hours": 168
+        "retention_hours": 168,
+        "alerts_enabled": True
     }
 
     if os.path.exists(sysmon_path):
@@ -565,6 +667,7 @@ def get_config():
             sysmon_data["collect_gpu"] = sec.getboolean('collect_gpu', fallback=True)
             sysmon_data["gpu_poll_every"] = sec.getint('gpu_poll_every', fallback=3)
             sysmon_data["retention_hours"] = sec.getint('retention_hours', fallback=168)
+            sysmon_data["alerts_enabled"] = sec.getboolean('alerts_enabled', fallback=True)
 
     thresholds_data = {}
     if os.path.exists(thresholds_path):
@@ -619,7 +722,7 @@ def save_config():
                     return error_response(f"{key} must be an integer between {lo} and {hi}", 400, field=f"sysmon.{key}")
                 cfg['sysmon'][key] = str(val)
 
-        for key in ('simulate_temp', 'collect_gpu'):
+        for key in ('simulate_temp', 'collect_gpu', 'alerts_enabled'):
             if key in s_cfg:
                 val = s_cfg[key]
                 if not isinstance(val, bool):
@@ -742,6 +845,23 @@ def set_config_profile():
         return jsonify({"ok": False, "error": "src/alerts.py script not found"}), 500
 
     try:
+        if profile == 'default':
+            sysmon_path = os.path.join(CONFIG_DIR, 'sysmon.conf')
+            default_sysmon = (
+                "[sysmon]\n"
+                "interval_s = 5\n"
+                "data_dir = data\n"
+                "top_n = 5\n"
+                "pipeline_interval_s = 10\n"
+                "port = 5000\n"
+                "simulate_temp = false\n"
+                "collect_gpu = true\n"
+                "gpu_poll_every = 3\n"
+                "retention_hours = 168\n"
+                "alerts_enabled = true\n"
+            )
+            atomic_write_text(sysmon_path, default_sysmon)
+
         res = subprocess.run(
             [sys.executable, alerts_script, '--init-defaults', '--profile', profile, '--force'],
             capture_output=True, text=True, timeout=15

@@ -6,7 +6,7 @@
 
 const METRICS = Object.keys(METRIC_LABELS);
 const SYSMON_FIELDS = ["interval_s", "pipeline_interval_s", "gpu_poll_every", "retention_hours"];
-const SYSMON_TOGGLES = ["collect_gpu", "simulate_temp"];
+const SYSMON_TOGGLES = ["collect_gpu", "simulate_temp", "alerts_enabled"];
 
 let loadedConfig = null;     // last config from the server
 let removedRules = new Set(); // rules deleted in the UI, sent as null
@@ -239,8 +239,8 @@ $("applyDemo").addEventListener("click", () =>
     applyProfile($("applyDemo"), "demo", "Demo profile applied. Alerts will fire quickly under load."));
 
 $("resetDefaults").addEventListener("click", () => {
-    if (!confirm("Reset all alert rules to their defaults? Your custom rules will be lost.")) return;
-    applyProfile($("resetDefaults"), "default", "Alert rules reset to defaults.");
+    if (!confirm("Reset all settings and alert rules to their defaults? Any custom settings will be lost.")) return;
+    applyProfile($("resetDefaults"), "default", "Settings and alert rules reset to defaults.");
 });
 
 
