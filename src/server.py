@@ -249,44 +249,13 @@ def get_system():
             pass
     return jsonify({})
 
-def _get_live_running_comms():
-    """Return set of comm names for currently running processes on Linux."""
-    comms = set()
-    if os.path.isdir('/proc'):
-        try:
-            for pid in os.listdir('/proc'):
-                if pid.isdigit():
-                    try:
-                        with open(f'/proc/{pid}/comm', 'r', encoding='utf-8', errors='ignore') as f:
-                            c = f.read().strip()
-                            if c:
-                                comms.add(c)
-                                comms.add(c.replace(' ', '_'))
-                    except (OSError, IOError):
-                        pass
-        except Exception:
-            pass
-    return comms
-
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     stats_path = get_file_path('stats.json')
     if os.path.exists(stats_path):
         try:
             with open(stats_path, 'r') as f:
-                data = json.load(f)
-
-            if isinstance(data, dict) and 'top_processes' in data and os.path.isdir('/proc'):
-                latest_epoch = data.get('latest_epoch')
-                # Filter out closed processes if this is a live monitoring session (within last 1 hour)
-                if latest_epoch and abs(time.time() - latest_epoch) < 3600:
-                    running_comms = _get_live_running_comms()
-                    if running_comms:
-                        data['top_processes'] = [
-                            p for p in data['top_processes']
-                            if p.get('command') in running_comms or p.get('command', '')[:15] in running_comms
-                        ]
-            return jsonify(data)
+                return jsonify(json.load(f))
         except Exception:
             pass
     return jsonify({})
