@@ -3,10 +3,9 @@
 \begin{frame}{Statistical Analysis Engine (\texttt{src/analyzer.py})}
     \begin{itemize}
         \setlength{\itemsep}{10pt}
-        \item \textbf{Multi-Window Rolling Statistics:} Computes mean, min, max, 95th percentile ($p_{95}$ via linear rank interpolation), and sample standard deviation ($ddof=1$) across 4 windows (\texttt{1h}, \texttt{24h}, \texttt{7d}, \texttt{all}).
-        \item \textbf{Predictive Disk-Full Forecast:} Fits Ordinary Least Squares (OLS) linear regression on root disk percentage over time to compute daily consumption rate ($\Delta\%/\text{day}$) and projected days to 100\% capacity.
-        \item \textbf{Z-Score Anomaly Detection:} Flags operational spikes where $|z| = \frac{|x - \mu|}{\sigma} > 3.0$ standard deviations from the window mean, identifying rare statistical outliers.
-        \item \textbf{Core-Normalized Process Ranking:} Scales raw \texttt{ps} CPU utilization by physical core count ($\min(100.0, \frac{\text{avg\_cpu}}{\text{cpu\_cores}})$), preventing confusing $>1000\%$ readings and matching desktop resource monitors.
+        \item \textbf{Multi-Window Rolling Statistics:} Computes mean, min, max, 95th percentile, and standard deviation across rolling time windows (\texttt{1h}, \texttt{24h}, \texttt{7d}, \texttt{all}) in pure Python without external dependencies.
+        \item \textbf{Core-Normalized Process Ranking:} Scales raw process CPU utilization by physical core count, preventing confusing $>1000\%$ readings and matching standard desktop resource monitors.
+        \item \textbf{Incremental Processing Optimization (\texttt{--since}):} Filters historical metrics to analyze only fresh samples since the previous run, cutting execution time by up to \textbf{6.2$\times$} (reducing runtime from 800~ms to 128~ms for 20,000 rows).
     \end{itemize}
 \end{frame}
 
