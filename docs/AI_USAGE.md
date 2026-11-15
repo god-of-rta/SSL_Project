@@ -6,16 +6,6 @@ Project: SysMon  · Last updated: 14/11/2026
 We used AI tools to assist with this project. Every member understands and can
 explain the code and documents they submitted.
 
-## Summary
-| Person | Tools used | Used for | Files / sections |
-|---|---|---|---|
-| Varun | Claude, Antigravity | Architecture planning, interface contracts, data analysis, execution pipeline automation, launcher, LaTex report and slides.
-| Harsha | Gemini, Claude | background collector, control scripts, cross-platform fallbacks, data cleaner, unit tests, LaTeX report & slides | bin/collector.sh, bin/start.sh, bin/stop.sh, bin/status.sh, src/cleaner.py, tests/test_cleaner.py, tests/test_collector.py, report/sections/collector_cleaner.tex, report/sections/slides_collector_cleaner.tex |
-| Prerit | | | |
-| Amogh | Gemini, ChatGPT |Code Review, Library use, Tikz diagram adjustment |Server.py - Threading, Subprocess, Config-parser,Safety Checks using is-instance and optimisation of implemented code |
-| Amitha | | | |
-| Amulya | | | |
-
 ## Per-person log
 ### Varun (P1: Integrator + Analysis)
 - **Tools:** Claude, Antigravity
@@ -34,7 +24,7 @@ explain the code and documents they submitted.
   - Verified that `./sysmon` cleanly boots on a fresh clone without manual intervention.
 
 ### Harsha (P2: Collector + Cleaner)
-- **Tools:** Gemini, Claude
+- **Tools:** Gemini, Antigravity
 - **What I used AI for:**
   - Shell script architecture and metric sampling logic for `bin/collector.sh`, POSIX signal trapping, low-overhead direct `/proc` and `/sys` parsing, and GPU power-state detection.
   - Cross-platform process and lock management fallbacks for Git Bash / MSYS2 / Windows environments.
