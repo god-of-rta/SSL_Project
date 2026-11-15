@@ -1,0 +1,437 @@
+\documentclass[aspectratio=169,10pt]{beamer}
+
+% Minimal, editorial-style Beamer foundation
+\usetheme{default}
+\usefonttheme{professionalfonts}
+\setbeamertemplate{navigation symbols}{}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[light,medium,sfdefault]{FiraSans}
+\usepackage{ebgaramond}
+\usepackage{FiraMono}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{colortbl}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% Light editorial palette with high-contrast, distinct accents
+\definecolor{Ink}{HTML}{FAF9F6}          % warm off-white canvas
+\definecolor{Graphite}{HTML}{EEF0F2}     % pale cool grey panels
+\definecolor{Slate}{HTML}{E2E8ED}        % light blue-grey surfaces
+\definecolor{Ivory}{HTML}{252B35}        % primary text
+\definecolor{SoftIvory}{HTML}{46515F}    % secondary text
+\definecolor{Muted}{HTML}{687382}        % captions and metadata
+\definecolor{Champagne}{HTML}{B86B24}    % amber/orange accent
+\definecolor{ChampagneLight}{HTML}{9A5B1D}
+\definecolor{DustBlue}{HTML}{367FA6}     % blue accent
+\definecolor{Sage}{HTML}{43866F}         % green accent
+\definecolor{Clay}{HTML}{C65F4B}         % coral accent
+\definecolor{PaleBlue}{HTML}{356F9A}
+\definecolor{Violet}{HTML}{8060A8}       % lavender accent
+\definecolor{Teal}{HTML}{25877F}         % teal accent
+
+\setbeamercolor{normal text}{fg=Ivory,bg=Ink}
+\setbeamercolor{structure}{fg=Teal}
+\setbeamercolor{title}{fg=ChampagneLight}
+\setbeamercolor{subtitle}{fg=Muted}
+\setbeamercolor{author}{fg=SoftIvory}
+\setbeamercolor{frametitle}{fg= DustBlue,bg=Ink}
+\setbeamercolor{framesubtitle}{fg=Muted,bg=Ink}
+\setbeamercolor{itemize item}{fg=Teal}
+\setbeamercolor{itemize subitem}{fg=Muted}
+\setbeamercolor{enumerate item}{fg=Champagne}
+\setbeamercolor{section in toc}{fg=Ivory}
+\setbeamercolor{subsection in toc}{fg=Muted}
+\setbeamercolor{block title}{fg=Ink,bg=Teal}
+\setbeamercolor{block body}{fg=Ivory,bg=Graphite}
+\setbeamercolor{block title alerted}{fg=Ink,bg=Clay}
+\setbeamercolor{block body alerted}{fg=Ivory,bg=Graphite}
+\setbeamercolor{block title example}{fg=Ink,bg=Violet}
+\setbeamercolor{block body example}{fg=Ivory,bg=Graphite}
+\setbeamercolor{caption name}{fg=DustBlue}
+\setbeamercolor{author in head/foot}{fg=Muted,bg=Ink}
+\setbeamercolor{page number in head/foot}{fg=Muted,bg=Ink}
+
+% Quiet title hierarchy and restrained page numbering
+\setbeamerfont{title}{family=\rmfamily,size=\LARGE,series=\mdseries}
+\setbeamerfont{subtitle}{size=\normalsize,series=\mdseries}
+\setbeamerfont{frametitle}{family=\rmfamily,size=\Large,series=\mdseries}
+\setbeamerfont{framesubtitle}{family=\sffamily,size=\scriptsize,series=\mdseries}
+\setbeamerfont{normal text}{family=\rmfamily,size=\small,series=\mdseries}
+\setbeamerfont{itemize/enumerate body}{family=\rmfamily}
+\setbeamerfont{itemize/enumerate subbody}{family=\rmfamily}
+\setbeamertemplate{frametitle}{%
+  \vspace{0.35em}%
+  \begin{beamercolorbox}[wd=\paperwidth,ht=2.5ex,dp=1.1ex,leftskip=0.65cm,rightskip=0.5cm]{frametitle}%
+    \usebeamerfont{frametitle}\insertframetitle
+  \end{beamercolorbox}%
+  \ifx\insertframesubtitle\empty\else%
+    \begin{beamercolorbox}[wd=\paperwidth,ht=1.7ex,dp=0.6ex,leftskip=0.65cm]{framesubtitle}%
+      \usebeamerfont{framesubtitle}\insertframesubtitle
+    \end{beamercolorbox}%
+  \fi
+}
+\setbeamertemplate{footline}{%
+  \begin{beamercolorbox}[wd=\paperwidth,ht=2.6ex,dp=1.1ex,rightskip=0.55cm]{page number in head/foot}%
+    \hfill\usebeamerfont{page number in head/foot}\insertframenumber\hspace{0.15em}/\hspace{0.15em}\inserttotalframenumber
+  \end{beamercolorbox}%
+}
+\setbeamertemplate{itemize item}{\raise0.15ex\hbox{\small\textcolor{Sage}{\textbullet}}}
+\setbeamertemplate{itemize subitem}{\raise0.1ex\hbox{\scriptsize\textcolor{DustBlue}{\textbullet}}}
+\setbeamertemplate{sections/subsections in toc}[sections numbered]
+\setlength{\parskip}{0.25em}
+
+% --- packages and helpers needed by the Backend slides (taken from slides/beamer_Backend.tex) ---
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc}
+\usepackage{ragged2e}
+
+\newcolumntype{L}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\RaggedRight\arraybackslash}X}
+\setlength{\tabcolsep}{5pt}
+\arrayrulecolor{Muted}
+\renewcommand{\arraystretch}{1.12}
+
+\lstset{
+  basicstyle=\ttfamily\scriptsize\color{SoftIvory},
+  keywordstyle=\bfseries\color{ChampagneLight},
+  commentstyle=\itshape\color{Muted},
+  stringstyle=\color{Champagne},
+  backgroundcolor=\color{Graphite},
+  frame=single,
+  rulecolor=\color{Slate},
+  breaklines=true,
+  showstringspaces=false
+}
+
+\title[SysMon]{Unix System Monitoring}
+\subtitle{SSL Course Project}
+\author{}
+\institute{}
+\date{}
+
+\begin{document}
+
+\begin{frame}[plain]
+    \centering
+    \vspace*{0.75cm}
+    {\usebeamerfont{title}\color{ChampagneLight}\inserttitle\par}
+    \vspace{0.18cm}
+    {\usebeamerfont{subtitle}\color{Muted}\insertsubtitle\par}
+    \vspace{0.42cm}
+    {\color{Violet}\rule{0.14\linewidth}{1.2pt}}
+    \vspace{0.55cm}
+
+    \begin{columns}[T,onlytextwidth]
+        \begin{column}{0.48\textwidth}
+            \centering
+            {\color{Ivory}\normalsize Varun J Kumar}\\[-1pt]
+            {\color{Muted}\scriptsize CS25BT027}\\[0.30cm]
+            {\color{Ivory}\normalsize Amogh Chhuneja}\\[-1pt]
+            {\color{Muted}\scriptsize CS25BT045}\\[0.30cm]
+            {\color{Ivory}\normalsize Sri Harsha Rangu}\\[-1pt]
+            {\color{Muted}\scriptsize CS25BT050}
+        \end{column}
+        \begin{column}{0.48\textwidth}
+            \centering
+            {\color{Ivory}\normalsize Prerit Devashetti}\\[-1pt]
+            {\color{Muted}\scriptsize CS25BT008}\\[0.30cm]
+            {\color{Ivory}\normalsize Amulya Ravi Koti}\\[-1pt]
+            {\color{Muted}\scriptsize MC25BT008}\\[0.30cm]
+            {\color{Ivory}\normalsize Amitha Reddy Kota}\\[-1pt]
+            {\color{Muted}\scriptsize MC25BT002}
+        \end{column}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Outline}
+    \vspace{0.65em}
+    \begin{tabularx}{0.94\linewidth}{@{}p{0.9cm}X@{}}
+        {\large\color{Violet}\textbf{01}} & {\large\color{Ivory}Introduction and Architecture}\\[1.15em]
+        {\large\color{Violet}\textbf{02}} & {\large\color{Ivory}Telemetry Collection and Data Cleaning}\\[1.15em]
+        {\large\color{Violet}\textbf{03}} & {\large\color{Ivory}Statistical Analysis and Pipeline Automation}\\[1.15em]
+        {\large\color{Violet}\textbf{04}} & {\large\color{Ivory}Backend Performance and Operations}\\[1.15em]
+        {\large\color{Violet}\textbf{05}} & {\large\color{Ivory}Integration and Profiling}\\
+    \end{tabularx}
+\end{frame}
+
+% ===== Introduction and Architecture (from slides/introduction.tex) =====
+\section{Introduction and Architecture}
+
+\begin{frame}{SysMon: Motivation, Goals, and Architecture}
+    \begin{itemize}
+        \setlength{\itemsep}{10pt}
+        \item \textbf{The Core Problem:} Existing Unix monitors are either too simplistic (command-line only, no history or alerts) or too heavy (Prometheus/Datadog consume 200MB+ RAM and distort CPU measurements).
+        \item \textbf{Our Primary Goal:} Deliver an autonomous, zero-configuration monitoring suite with less CPU probe overhead, using local CSV/JSON files with no external database dependencies.
+        \item \textbf{Four-Stage Decoupled Pipeline:}
+        \begin{itemize}
+            \setlength{\itemsep}{3pt}
+            \item \textit{Collector (Bash):} Polls 16 kernel metrics from \texttt{/proc} \& \texttt{/sys} every 5 seconds.
+            \item \textit{Cleaner (Python):} Validates ranges, forward-fills brief gaps, and tags MAD outliers.
+            \item \textit{Analyzer (Python):} Computes multi-window stats, linear disk forecasts, and Z-scores.
+            \item \textit{Alerts \& Web UI (Flask):} Tracks sustained rules and serves a real-time streaming dashboard.
+        \end{itemize}
+        \item \textbf{Scope \& Roles:} Varun - Analysis and system integration,
+        Harsha - Bash scripts,
+        Prerit - Frontend,
+        Amogh - Backend,
+        Amulya - Alerts and profiling,
+        Amitha - Bash scripts and Latex files
+    \end{itemize}
+\end{frame}
+
+% ===== Collector and Cleaner (from sections/slides_collector_cleaner.tex) =====
+\section{Telemetry Collection and Data Cleaning}
+
+% Beamer Presentation Frames for P2 (Collector + Cleaner)
+% Ready for inclusion into report/slides.tex via \input{sections/slides_collector_cleaner.tex}
+
+\begin{frame}{System Telemetry Collector (\texttt{bin/collector.sh})}{P2: Harsha --- Telemetry Collection \& Daemon Management}
+\begin{columns}[T]
+\begin{column}{0.50\textwidth}
+\textbf{Lightweight Data Gathering:}
+\begin{itemize}
+    \item \textbf{Low Overhead}: Reads system files (\texttt{/proc}, \texttt{/sys}) directly instead of heavy tools ($<0.05\%$ CPU).
+    \item \textbf{16 Key Metrics}: CPU usage deltas, true available memory, disk, network rates, and temperatures.
+    \item \textbf{Smart GPU Monitoring}: Skips polling if dedicated graphics card is asleep, saving battery.
+    \item \textbf{Process Tracking}: Records top 5 CPU processes while filtering brief startup glitches.
+\end{itemize}
+\end{column}
+
+\begin{column}{0.48\textwidth}
+\textbf{Reliable Daemon Lifecycle:}
+\begin{itemize}
+    \item \textbf{Simple Controls}: Managed cleanly via \texttt{start.sh}, \texttt{stop.sh}, and \texttt{status.sh}.
+    \item \textbf{Single-Instance Lock}: Prevents duplicate collectors from running concurrently.
+    \item \textbf{Clean Shutdown}: Gracefully flushes data and closes files on exit.
+\end{itemize}
+
+\vspace{0.3em}
+\begin{block}{Interface Contract}
+Generates daily 16-column CSVs and hardware summary (\texttt{system\_info.json}).
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Data Cleaning Pipeline (\texttt{src/cleaner.py})}{P2: Harsha --- Data Quality, Imputation \& Retention}
+\begin{columns}[T]
+\begin{column}{0.50\textwidth}
+\textbf{Automated Data Sanitization:}
+\begin{itemize}
+    \item \textbf{Validation}: Checks realistic bounds (0--100\%, temperatures $\le 120^\circ\text{C}$); drops corrupted rows.
+    \item \textbf{Sorting \& Deduplication}: Orders rows by timestamp and discards duplicate reads.
+    \item \textbf{Handling Missing Data}:
+    \begin{itemize}
+        \item \emph{Short pauses ($1$--$3$ cycles)}: Forward-fills prior values to keep trends smooth.
+        \item \emph{Long gaps ($>3$ cycles)}: Flags sleep/downtime without making up fake data.
+    \end{itemize}
+\end{itemize}
+\end{column}
+
+\begin{column}{0.48\textwidth}
+\textbf{Spike Protection \& Maintenance:}
+\begin{itemize}
+    \item \textbf{Highlights Sudden Spikes}: Flags unusual jumps using a rolling-median window.
+    \item \textbf{Never Deletes Spikes}: Keeps real load spikes intact so alerts still trigger!
+    \item \textbf{Automatic Disk Cleanup}: Deletes files older than 7 days (\texttt{retention\_hours}).
+\end{itemize}
+
+\vspace{0.3em}
+\begin{block}{Verification}
+$100\%$ automated test pass rate (\texttt{test\_collector.py} \& \texttt{test\_cleaner.py}).
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ===== Analysis and Pipeline Automation (from slides/analysis.tex) =====
+\section{Statistical Analysis and Pipeline Automation}
+
+\begin{frame}{Statistical Analysis Engine (\texttt{src/analyzer.py})}
+    \begin{itemize}
+        \setlength{\itemsep}{10pt}
+        \item \textbf{Multi-Window Rolling Statistics:} Computes mean, min, max, 95th percentile ($p_{95}$ via linear rank interpolation), and sample standard deviation ($ddof=1$) across 4 windows (\texttt{1h}, \texttt{24h}, \texttt{7d}, \texttt{all}).
+        \item \textbf{Predictive Disk-Full Forecast:} Fits Ordinary Least Squares (OLS) linear regression on root disk percentage over time to compute daily consumption rate ($\Delta\%/\text{day}$) and projected days to 100\% capacity.
+        \item \textbf{Z-Score Anomaly Detection:} Flags operational spikes where $|z| = \frac{|x - \mu|}{\sigma} > 3.0$ standard deviations from the window mean, identifying rare statistical outliers.
+        \item \textbf{Core-Normalized Process Ranking:} Scales raw \texttt{ps} CPU utilization by physical core count ($\min(100.0, \frac{\text{avg\_cpu}}{\text{cpu\_cores}})$), preventing confusing $>1000\%$ readings and matching desktop resource monitors.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Pipeline Runner and Optimization (\texttt{bin/run\_pipeline.sh})}
+    \begin{itemize}
+        \setlength{\itemsep}{10pt}
+        \item \textbf{Sequential Stage Orchestration:} Executes Cleaner $\rightarrow$ Analyzer $\rightarrow$ Alerts in strict sequence, halting immediately if any stage fails to isolate downstream errors.
+        \item \textbf{Smart Change-Detection Caching:} Hashes raw CSV sizes and mtimes in \texttt{.pipeline\_raw\_stamp}; skips cleaner and analyzer when data is static.
+        \item \textbf{Subprocess Thread Pool Clamping:} Explicitly sets \texttt{OPENBLAS\_NUM\_THREADS=1} and \texttt{OMP\_NUM\_THREADS=1} to prevent short Python subprocesses from spawning 32 threads and churning the CPU.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{SysMon Launcher and Real Telemetry Findings}
+    \begin{itemize}
+        \setlength{\itemsep}{10pt}
+        \item \textbf{One-Click System Launcher (\texttt{./sysmon}):} Single root command creates \texttt{.venv}, installs requirements, initializes configs (\texttt{--init-defaults}), starts the server, and automatically opens the browser.
+        \item \textbf{Real Hardware Telemetry Dataset:} Validated against 4,814 clean rows and 23,886 process records collected over 2 days.
+        \item \textbf{Automated Alert Verification:} Alert engine fired warning at 80$^\circ$C and critical at 90$^\circ$C under sustained load, automatically resolving once temperature cooled to 77$^\circ$C.
+    \end{itemize}
+\end{frame}
+
+% ===== Backend (from slides/beamer_Backend.tex) =====
+\section{Backend Performance and Operations}
+
+% ------------------------------------------------------------
+\begin{frame}{Performance Problems \& Solutions}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}L{0.34\linewidth}Y@{}}
+\toprule
+\textbf{Problem} & \textbf{Solution / outcome} \\
+\midrule
+Repeated clicks / overlapping pipeline runs
+& \texttt{threading.Lock}: one active run; reject or skip overlap. \\
+\addlinespace[1mm]
+Scheduled work inside request handling
+& Daemon background thread: periodic pipeline runs outside the request handler. \\
+\addlinespace[1mm]
+Excess CPU threads from numerical libraries
+& OpenBLAS / OMP / MKL limited to \texttt{1} before Pandas and NumPy imports. \\
+\addlinespace[1mm]
+Partially written JSON or config files
+& Atomic write: temporary file $\rightarrow$ \texttt{os.replace()} $\rightarrow$ complete-file replacement. \\
+\addlinespace[1mm]
+Manual row-by-row CSV processing
+& Pandas: fast table operations for filtering, sorting, conversion, and resampling. \texttt{open()} remains for simple file reads. \\
+\addlinespace[1mm]
+Too many chart points / dashboard slowdown
+& Downsampling: fewer points for longer ranges; smaller responses and lighter chart rendering. \\
+\bottomrule
+\end{tabularx}
+
+\vspace{2mm}
+\scriptsize
+\textbf{Bucket sizes:} \texttt{1h} = 5 sec samples \quad
+\texttt{24h} = 1 min buckets \quad
+\texttt{7d} = 10 min buckets.\\
+\textbf{Bucket rule:} numeric values = average; flags = maximum; timestamp = last.\\
+\textit{Note:} current \texttt{read\_csv()} loads the clean CSV before downsampling. Downsampling reduces response/browser load, not the initial file-load memory.
+\end{frame}
+
+% ------------------------------------------------------------
+\begin{frame}{Data Handling \& Operational Safeguards}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}L{0.34\linewidth}Y@{}}
+\toprule
+\textbf{Component} & \textbf{Key behaviour} \\
+\midrule
+\texttt{get\_file\_path()}
+& Consistent lookup in \texttt{data/}; test fixtures only when explicitly enabled. \\
+\addlinespace[1.2mm]
+\texttt{GET /api/status}
+& Collector state + PID; latest sample time; last pipeline result; short status-script timeout. \\
+\addlinespace[1.2mm]
+Alert acknowledgement
+& Validate alert IDs; save to \texttt{acks.json}. \\
+\addlinespace[1.2mm]
+\texttt{GET/POST /api/config}
+& Read / update collection settings and alert rules; validate types, metrics, operators, and ranges. \\
+\addlinespace[1.2mm]
+Collector and pipeline scripts
+& Fixed start / stop / status / run scripts; execution timeouts; JSON success or error response. \\
+\addlinespace[1.2mm]
+JSON input / command safety
+& Check JSON structure, types and ranges; allow-list metrics / operators; run predefined scripts only---no request-supplied shell commands. \\
+\bottomrule
+\end{tabularx}
+
+\vspace{3mm}
+\begin{block}{Main safeguards}
+\centering
+\textbf{JSON validation}\quad $\vert$ \quad
+\textbf{Fixed scripts only}\quad $\vert$ \quad
+\textbf{Atomic file replacement}\quad $\vert$ \quad
+\textbf{Timeouts + lock}
+\end{block}
+\end{frame}
+
+% ------------------------------------------------------------
+\begin{frame}{System Request \& Data Flow}
+\centering
+\vspace{-1mm}
+\begin{tikzpicture}[
+  font=\scriptsize,
+  front/.style={draw=DustBlue,rounded corners=3pt,fill=Slate,text=Ivory,align=center,inner sep=5pt,
+               text width=3.7cm,minimum height=0.75cm},
+  backend/.style={draw=Teal,very thick,rounded corners=3pt,fill=Graphite,text=Ivory,align=center,
+                  inner sep=6pt,text width=4.3cm,minimum height=0.95cm},
+  data/.style={draw=Violet,rounded corners=3pt,fill=Graphite,text=Ivory,align=center,inner sep=4pt,
+              text width=2.65cm,minimum height=1.12cm},
+  scripts/.style={draw=Champagne,rounded corners=3pt,fill=Graphite,text=Ivory,align=center,inner sep=4pt,
+                  text width=2.75cm,minimum height=1.12cm},
+  flow/.style={<->,thick,draw=Teal},
+  bus/.style={thick,draw=Violet}
+]
+
+% Main layers
+\node[front] (ui) at (0,2.95)
+  {\textbf{FRONT END / DASHBOARD}\\Charts, status, alerts, controls};
+\node[backend] (api) at (0,1.00)
+  {\textbf{FLASK BACKEND}\\API requests, validation, coordination, JSON responses};
+
+% Backend resources
+\node[data] (metrics) at (-4.8,-1.55)
+  {\textbf{METRICS CSV FILES}\\\texttt{clean/metrics.csv}\\\texttt{raw/metrics\_*.csv}};
+\node[data] (other) at (-1.6,-1.55)
+  {\textbf{OTHER DATA FILES}\\\texttt{alerts.csv}, \texttt{acks.json}\\System info, stats, pipeline status};
+\node[data] (config) at (1.6,-1.55)
+  {\textbf{CONFIGURATION}\\\texttt{sysmon.conf}\\\texttt{thresholds.conf}};
+\node[scripts] (run) at (4.8,-1.55)
+  {\textbf{SHELL / PYTHON SCRIPTS}\\\texttt{start.sh}, \texttt{stop.sh}\\\texttt{status.sh}, \texttt{run\_pipeline.sh}\\\texttt{alerts.py}};
+
+% Front end requests and responses
+\draw[flow] (ui.south) -- (api.north);
+\node[align=left,anchor=west,fill=Ink,text=Champagne,inner sep=2pt] at (2.05,2.02)
+  {GET: fetch data\\POST: perform action / update};
+
+% Shared resource bus and connections
+\draw[flow] (api.south) -- (0,-0.30);
+\draw[bus] (-5.15,-0.30) -- (5.15,-0.30);
+\draw[flow] (-4.8,-0.30) -- (metrics.north);
+\draw[flow] (-1.6,-0.30) -- (other.north);
+\draw[flow] (1.6,-0.30) -- (config.north);
+\draw[flow] (4.8,-0.30) -- (run.north);
+
+\end{tikzpicture}
+
+\vspace{2mm}
+\footnotesize
+Dashboard $\leftrightarrow$ backend: GET / POST.\\
+Backend $\leftrightarrow$ files: read / update. \\
+Backend $\rightarrow$ scripts: execute / collect result.
+\end{frame}
+
+% ===== Integration and Profiling (from slides/integration.tex) =====
+\section{Integration and Profiling}
+
+\begin{frame}{Performance Profiling and Hardware Optimizations}
+    \begin{itemize}
+        \setlength{\itemsep}{10pt}
+        \item \textbf{Eliminating Dedicated GPU Wakeups:} Checked PCI power state via sysfs to bypass \texttt{nvidia-smi} when the dGPU is asleep in D3cold, slashing polling latency from \textbf{520 ms to 18 ms} ($28.8\times$ faster).
+        \item \textbf{Significant CPU Overhead Reduction:} Collector CPU dropped from $1.85\% \to \mathbf{0.32\%}$ at idle and $4.10\% \to \mathbf{0.74\%}$ under heavy stress, easily meeting our $<1\%$ probe budget.
+        \item \textbf{Lean Memory Footprint:} Collector runs in only \textbf{4.2 MB} of RAM and the Flask server uses \textbf{28.4 MB}, remaining well below our 50 MB design limit.
+    \end{itemize}
+\end{frame}
+
+
+\begin{frame}[plain]
+    \centering
+    \vfill
+    {\usebeamerfont{title}\color{ChampagneLight}\fontsize{24}{29}\selectfont Thank You\par}
+    \vspace{0.28cm}
+    {\color{Violet}\rule{0.12\linewidth}{1.1pt}\par}
+    \vfill
+\end{frame}
+\end{document}

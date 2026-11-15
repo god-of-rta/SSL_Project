@@ -1,0 +1,23 @@
+\section{Introduction and Architecture}
+
+\begin{frame}{SysMon: Motivation, Goals, and Architecture}
+    \begin{itemize}
+        \setlength{\itemsep}{10pt}
+        \item \textbf{The Core Problem:} Existing Unix monitors are either too simplistic (command-line only, no history or alerts) or too heavy (Prometheus/Datadog consume 200MB+ RAM and distort CPU measurements).
+        \item \textbf{Our Primary Goal:} Deliver an autonomous, zero-configuration monitoring suite with less CPU probe overhead, using local CSV/JSON files with no external database dependencies.
+        \item \textbf{Four-Stage Decoupled Pipeline:}
+        \begin{itemize}
+            \setlength{\itemsep}{3pt}
+            \item \textit{Collector (Bash):} Polls 16 kernel metrics from \texttt{/proc} \& \texttt{/sys} every 5 seconds.
+            \item \textit{Cleaner (Python):} Validates ranges, forward-fills brief gaps, and tags MAD outliers.
+            \item \textit{Analyzer (Python):} Computes multi-window stats, linear disk forecasts, and Z-scores.
+            \item \textit{Alerts \& Web UI (Flask):} Tracks sustained rules and serves a real-time streaming dashboard.
+        \end{itemize}
+        \item \textbf{Scope \& Roles:} Varun - Analysis and system integration,
+        Harsha - Bash scripts,
+        Prerit - Frontend,
+        Amogh - Backend,
+        Amulya - Alerts and profiling,
+        Amitha - Bash scripts and Latex files
+    \end{itemize}
+\end{frame}
