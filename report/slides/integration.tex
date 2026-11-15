@@ -1,14 +1,5 @@
 \section{Integration and Profiling}
 
-\begin{frame}{System Integration Approach and Issues Overcome}
-    \begin{itemize}
-        \setlength{\itemsep}{10pt}
-        \item \textbf{System architecture} Defined strict schemas in \texttt{INTERFACES.md} beforehand so sub-teams developed in parallel against mock fixtures without blocking each other.
-        \item \textbf{Filtering Process Spikes:} Excluded processes with \texttt{etimes} $<2$ seconds and \texttt{ps} itself in \texttt{collector.sh}, eliminating false division spikes exceeding 100\% CPU.
-        \item \textbf{Minimal Lag Streaming Bridge:} Integrated a hybrid read in Flask \texttt{/api/metrics} that dynamically appends in-flight raw samples to cleaned data, reflecting load spikes on the UI.
-    \end{itemize}
-\end{frame}
-
 \begin{frame}{Performance Profiling and Hardware Optimizations}
     \begin{itemize}
         \setlength{\itemsep}{10pt}
