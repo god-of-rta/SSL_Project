@@ -1,0 +1,63 @@
+{
+  "machine": {
+    "python": "3.14.4",
+    "platform": "Linux-7.0.0-43-generic-x86_64-with-glibc2.43",
+    "cpu_count": 32,
+    "pandas": "3.1.1"
+  },
+  "seed": 42,
+  "sizes": {
+    "5000": {
+      "cleaner_plain": {
+        "wall_s": 0.23,
+        "peak_mb": 75
+      },
+      "cleaner_fast": {
+        "wall_s": 0.46,
+        "peak_mb": 85,
+        "identical_csv": true,
+        "speedup": 0.5
+      },
+      "analyzer": {
+        "wall_s": 0.25,
+        "peak_mb": 75
+      },
+      "incremental_last_hour": {
+        "cleaner_s": 0.14,
+        "analyzer_s": 0.15
+      },
+      "mean_cpu_per_hour": {
+        "awk_s": 0.01,
+        "python_csv_s": 0.02,
+        "pandas_s": 0.01,
+        "same_result": true
+      }
+    },
+    "20000": {
+      "cleaner_plain": {
+        "wall_s": 0.68,
+        "peak_mb": 77
+      },
+      "cleaner_fast": {
+        "wall_s": 0.6,
+        "peak_mb": 110,
+        "identical_csv": true,
+        "speedup": 1.13
+      },
+      "analyzer": {
+        "wall_s": 0.8,
+        "peak_mb": 77
+      },
+      "incremental_last_hour": {
+        "cleaner_s": 0.3,
+        "analyzer_s": 0.35
+      },
+      "mean_cpu_per_hour": {
+        "awk_s": 0.02,
+        "python_csv_s": 0.08,
+        "pandas_s": 0.01,
+        "same_result": true
+      }
+    }
+  }
+}

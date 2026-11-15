@@ -1,0 +1,54 @@
+\section{Frontend Dashboard and Automated Alerting System}
+\label{sec:frontend_alerts}
+
+\subsection{Purpose and Subsystem Overview}
+The visualization and alerting tier comprises the interactive user dashboard (\texttt{web/}) and the rule-based alert evaluation engine (\texttt{src/alerts.py}). Together, these components transform processed time-series telemetry into actionable observability for system operators. The dashboard provides zero-dependency client-side visualization, while the alert engine tracks sustained threshold anomalies and enforces cooldown intervals to eliminate notification fatigue.
+
+\subsection{Frontend Dashboard Architecture (\texttt{web/})}
+The user interface is engineered as a lightweight, framework-free single-page web client constructed strictly with vanilla HTML5, modern CSS, and JavaScript. It runs natively in any standard web browser without requiring Node.js runtimes, package bundling, or external CDN dependencies. Charting capabilities are powered by a locally bundled, self-hosted distribution of Chart.js (\path{web/static/chart.umd.js}), ensuring full offline operational capability.
+
+The dashboard interface is organized across five specialized operational views:
+\begin{enumerate}
+    \item \textbf{Overview Dashboard (\path{web/index.html}):} The primary operational cockpit. Features real-time SVG radial load gauges (CPU, RAM, Root Disk, and GPU utilization), a high-frequency streaming activity graph displaying live CPU and network bandwidth rates, the top-5 resource-consuming processes, an active alerts banner, and collector daemon controls (Start/Stop toggle and an on-demand batch pipeline trigger).
+    \item \textbf{Historical Telemetry Trends (\path{web/trends.html}):} A multi-resolution time-series exploration page. Operators can toggle between 1-hour (unresampled 5-second steps), 24-hour (1-minute downsampled buckets), and 7-day (10-minute downsampled buckets) historical horizons. Includes interactive metric toggle checkboxes, automatic scaling, and visual markers for cleaner-imputed gaps and statistical outliers.
+    \item \textbf{Alert Management Console (\path{web/alerts.html}):} A centralized interface for triaging system anomalies. Displays active and historical alert events with severity badges (\texttt{WARNING} vs. \texttt{CRITICAL}), rule definitions, trigger timestamps, and values. Operators can acknowledge notifications via an \textbf{Acknowledge} button or mark recovered alerts as resolved.
+    \item \textbf{Process Explorer (\path{web/processes.html}):} An interactive process telemetry viewer. Provides core-normalized CPU and memory percentages, rank tracking, and real-time client-side search filtering by process name and PID.
+    \item \textbf{Configuration and Threshold Settings (\path{web/settings.html}):} A graphical interface for updating operational parameters. Allows administrators to modify collector intervals, retention horizons, GPU monitoring toggles, and alert rule parameters (thresholds, operators, durations, and cooldowns) through authenticated REST calls to \texttt{POST /api/config}.
+\end{enumerate}
+
+\subsection{Automated Alert Evaluation Engine (\texttt{src/alerts.py})}
+The alerting engine evaluates incoming telemetry against operational limits defined in \path{config/thresholds.conf}. Alerting on raw, instantaneous spikes inevitably results in notification storms (e.g., a brief 1-second compiler invocation or garbage collection sweep). To guarantee high alert fidelity, \texttt{src/alerts.py} enforces rigorous evaluation semantics:
+\begin{itemize}
+    \item \textbf{Configurable Relational Operators:} Rules evaluate relational expressions across all telemetry metrics using standard operators ($>$, $<$, $\ge$, $\le$, $==$, $\ne$).
+    \item \textbf{Sustained Violation Requirement (\texttt{duration\_s}):} An alert is triggered only when a threshold breach persists across $N$ consecutive ticks, where $N = \lfloor\text{duration} / \text{interval}\rfloor$. Transient blips are safely ignored.
+    \item \textbf{Alert Suppression and Cooldown (\texttt{cooldown\_s}):} Once an alert fires, a cooldown timer suppresses duplicate notifications for the same rule for a user-specified duration (e.g., 60\,s), preventing runaway log expansion while a system condition remains elevated.
+    \item \textbf{Multi-Tier Severity Levels:} Rules are stratified into \texttt{WARNING} (e.g., CPU temperature $\ge 80^\circ$C) and \texttt{CRITICAL} (e.g., CPU temperature $\ge 90^\circ$C, disk usage $\ge 95\%$).
+\end{itemize}
+
+Alert events are written append-only to \path{data/alerts.csv} with the schema:
+$$\langle\text{alert\_id}, \text{epoch}, \text{iso\_time}, \text{rule\_name}, \text{severity}, \text{metric}, \text{value}, \text{threshold}, \text{message}\rangle$$
+
+\subsection{Alert State Lifecycle and Operator Acknowledgement}
+Alerts progress through a three-stage lifecycle: \textbf{Firing} $\to$ \textbf{Acknowledged} $\to$ \textbf{Resolved}.
+When an operator reviews an alert on the web dashboard, clicking \textbf{Acknowledge} dispatches a payload to \texttt{POST /api/alerts/ack}. The backend records the alert ID in \path{data/acks.json} using atomic file writes. Subsequent dashboard queries cross-reference active alerts against \path{data/acks.json}, ensuring that acknowledged conditions remain flagged without repeating audio or visual alert banners. When the underlying system metric recovers below the trigger threshold, the alert status naturally transitions to resolved.
+
+\subsection{Inputs, Outputs, and Interface Contracts}
+Table~\ref{tab:frontend_alerts_io} summarizes the decoupled filesystem and network contracts governing the frontend and alerting subsystems.
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \begin{tabularx}{\textwidth}{llXX}
+        \toprule
+        \textbf{Artifact / Endpoint} & \textbf{Data Format} & \textbf{Producer / Writer} & \textbf{Consumer / Reader} \\
+        \midrule
+        \path{config/thresholds.conf} & INI Syntax & User / Master Launcher & Alert Engine, Web Settings \\
+        \path{data/alerts.csv} & CSV (9 cols) & Alert Engine (\texttt{alerts.py}) & Flask API (\texttt{GET /api/alerts}) \\
+        \path{data/acks.json} & JSON Array & Flask API (\texttt{POST /api/alerts/ack}) & Alert Management UI \\
+        \texttt{GET /api/metrics} & JSON Stream & Backend API & Chart.js Visualizer (\texttt{trends.js}) \\
+        \path{web/static/chart.umd.js} & Standalone JS & Local Repository Fixture & Frontend Browser Canvas \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Frontend and Alerting Subsystem Interface Contracts}
+    \label{tab:frontend_alerts_io}
+\end{table}

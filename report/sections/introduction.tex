@@ -20,22 +20,23 @@ The end-to-end pipeline consists of four distinct operational stages:
     \label{fig:pipeline_arch}
 \end{figure}
 
-The project development was divided into distinct subsystem responsibilities among five team members:
+The project development was divided into distinct subsystem responsibilities among the six team members:
 \begin{itemize}
-    \item \textbf{Integrator + Analysis (Varun J Kumar):} Repository initialization, master launcher (\texttt{./sysmon}), pipeline orchestrator (\texttt{bin/run\_pipeline.sh}), statistical analysis engine (\texttt{src/analyzer.py}), multi-core profiling, and documentation. End to end system integration and testing.
-    \item \textbf{Collector + Cleaner (Sri Harsha Rangu):} Bash metric daemon (\texttt{bin/collector.sh}), daemon lifecycle scripts, and data cleaning engine (\texttt{src/cleaner.py}).
-    \item \textbf{Frontend (Prerit Devashetti):} HTML5/CSS web dashboard, real-time Chart.js streaming visualizer, radial gauge dials, and multi-page UI views.
-    \item \textbf{Backend / Server (Amogh Chhuneja):} Flask REST API endpoints, real-time streaming metric merge, and server test suites.
-    \item \textbf{Alerts + Synthetic Data + Profiling (Amitha Reddy Kota and Amulya Koti):} Threshold alert engine (\texttt{src/alerts.py}), synthetic data generator (\texttt{bin/gen\_data.py}), and stress test harness (\texttt{bin/stress.sh}).
+    \item \textbf{Varun J Kumar (Integrator + Analysis):} System architecture design in \path{docs/INTERFACES.md}, master one-click launcher (\path{./sysmon}), batch pipeline orchestrator (\path{bin/run_pipeline.sh}), statistical analysis engine (\path{src/analyzer.py}), multi-core thread tuning, and end-to-end integration testing.
+    \item \textbf{Sri Harsha Rangu (Collector + Cleaner):} Low-overhead POSIX Bash metric collector daemon (\path{bin/collector.sh}), daemon lifecycle scripts (\path{start.sh}, \path{stop.sh}, \path{status.sh}), hybrid GPU power-state detection, and data cleaning engine (\path{src/cleaner.py}).
+    \item \textbf{Prerit Devashetti (Frontend):} HTML5/CSS web dashboard interface (\path{web/}), real-time streaming Chart.js telemetry graphs, interactive radial load dials, alert visualizer, and multi-view page routing.
+    \item \textbf{Amogh Chhuneja (Backend / Server):} Flask REST API application server (\path{src/server.py}), multi-tier time-range downsampling, real-time live streaming metric merge, and server test suites.
+    \item \textbf{Amitha Reddy Kota (Synthetic Data Generator \& Test Harness):} Synthetic telemetry and anomaly generator (\path{bin/gen_data.py}), reproducible test fixtures, multi-scenario system stress generator (\path{bin/stress.sh}), and automated test harness (\path{run_tests.sh}).
+    \item \textbf{Amulya Koti (Alert Engine \& Performance Profiling):} Sustained-breach and cooldown alert evaluator (\path{src/alerts.py}), configurable rule parser (\path{config/thresholds.conf}), vectorized Pandas benchmark driver (\path{bin/profile_run.py}, \path{bin/run_benchmarks.sh}), and profiling optimization report (\path{src/cleaner_fast.py}).
 \end{itemize}
 
 \subsection{Inputs and Outputs}
-Table~\ref{tab:metrics_columns} enumerates all 16 raw system metrics captured by the collector into \texttt{data/raw/metrics\_YYYYMMDD.csv}.
+Table~\ref{tab:metrics_columns} enumerates all 16 raw system metrics captured by the collector into \path{data/raw/metrics_YYYYMMDD.csv}.
 
 \begin{table}[htbp]
     \centering
     \small
-    \begin{tabular}{rlll}
+    \begin{tabularx}{\textwidth}{rllX}
         \toprule
         \# & Column & Description & Kernel / Command Source \\
         \midrule
@@ -56,7 +57,7 @@ Table~\ref{tab:metrics_columns} enumerates all 16 raw system metrics captured by
         15 & \texttt{gpu\_mem\_used\_pct} & GPU VRAM utilization (\%) & \texttt{nvidia-smi} or AMD sysfs \\
         16 & \texttt{gpu\_temp\_c} & GPU temperature ($^\circ$C) & \texttt{nvidia-smi} or AMD sysfs \\
         \bottomrule
-    \end{tabular}
+    \end{tabularx}
     \caption{All 16 Raw Telemetry Metrics Captured in the Metrics CSV}
     \label{tab:metrics_columns}
 \end{table}
@@ -67,7 +68,7 @@ The end-to-end architecture was validated using automated test suites across all
 \begin{table}[htbp]
     \centering
     \small
-    \begin{tabular}{lll}
+    \begin{tabularx}{\textwidth}{lXX}
         \toprule
         Subsystem & Verification Scope & Outcome \\
         \midrule
@@ -77,7 +78,7 @@ The end-to-end architecture was validated using automated test suites across all
         Alert Engine & Sustained rule breaches ($N=3$), cooldown timers & Passed (Zero alert storms) \\
         Web Server \& UI & REST endpoints, streaming Chart.js graph, process table & Passed ($<20$~ms local response) \\
         \bottomrule
-    \end{tabular}
+    \end{tabularx}
     \caption{Subsystem End-to-End Validation Summary}
     \label{tab:intro_test}
 \end{table}

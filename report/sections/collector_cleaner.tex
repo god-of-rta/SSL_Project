@@ -54,13 +54,13 @@ Modern laptops with hybrid graphics (NVIDIA Optimus / AMD Prime) place the discr
 
 To prevent this:
 \begin{enumerate}
-    \item \textbf{PCI Runtime Power Inspection}: The collector scans \texttt{/sys/bus/pci/devices/*/power/runtime\_status} for vendor ID \texttt{0x10de}. If the state is \texttt{suspended}, the collector skips \texttt{nvidia-smi} execution entirely and emits empty CSV fields (\texttt{",,"}).
+    \item \textbf{PCI Runtime Power Inspection}: The collector scans \path{/sys/bus/pci/devices/*/power/runtime_status} for vendor ID \texttt{0x10de}. If the state is \texttt{suspended}, the collector skips \texttt{nvidia-smi} execution entirely and emits empty CSV fields (\texttt{",,"}).
     \item \textbf{Throttled Polling Frequency}: When the GPU is active, telemetry is polled once every $N$ samples (\texttt{gpu\_poll\_every = 3}, default 15s) rather than every basic tick.
-    \item \textbf{Direct \texttt{/proc} Model Extraction}: Model names are read directly from \texttt{/proc/driver/nvidia/gpus/*/information} without invoking heavy binaries.
+    \item \textbf{Direct \texttt{/proc} Model Extraction}: Model names are read directly from \path{/proc/driver/nvidia/gpus/*/information} without invoking heavy binaries.
 \end{enumerate}
 
 \subsubsection{Process Telemetry and Transient Spike Mitigation}
-Top process tracking records the top 5 CPU consumers into daily rotating CSV files (\texttt{processes\_YYYYMMDD.csv}). Two critical engineering issues were solved in the collector:
+Top process tracking records the top 5 CPU consumers into daily rotating CSV files (\path{processes_YYYYMMDD.csv}). Two critical engineering issues were solved in the collector:
 \begin{itemize}
     \item \textbf{Column-Shift Immunity}: Command names containing spaces or hyphens (such as \texttt{mt76-tx phy0} or \texttt{UVM global queu}) previously caused whitespace-separated field shifting. The collector invokes \texttt{ps -eo pid=,\%cpu=,\%mem=,etimes=,comm=} with \texttt{comm} positioned strictly at the end, concatenating all trailing tokens into a single normalized underscore-delimited identifier.
     \item \textbf{Birth-Quantization Filtering}: In Linux, when a short-lived process spawns immediately prior to a \texttt{ps} sample, dividing initial accumulated CPU ticks by a fraction of a second results in erroneous spikes ranging from $300\%$ to $4000\%$. The collector filters out both \texttt{ps} itself and transient processes with elapsed runtime $\text{etimes} < 2\,\text{s}$.
@@ -78,22 +78,25 @@ The collector daemon must operate reliably under automated control from the Flas
 \subsection{Data Cleaning Pipeline (\texttt{src/cleaner.py})}
 The raw CSV telemetry files contain inevitable operational imperfections: non-monotonic timestamps from clock adjustments, duplicate records from system restarts, sensor dropout gaps, and communication noise. The pure-Python cleaner (\texttt{src/cleaner.py}) transforms raw inputs into a sanitized, enriched dataset (\texttt{data/clean/metrics.csv}) alongside an audit summary (\texttt{cleaning\_report.json}).
 
-\begin{figure}[htbp]
+\begin{table}[htbp]
 \centering
-\begin{tabular}{|l|l|l|}
-\hline
-\textbf{Stage} & \textbf{Operation} & \textbf{Algorithm / Criteria} \\ \hline
-1. Validation & Strict bounds checking & Percentage $\in [0.0, 100.0]$, Temp $\in [0, 120]^\circ\text{C}$, Floats $\ge 0$ \\ \hline
-2. Deduplication & Epoch uniqueness & Drop duplicate timestamps; resolve conflicts via latest entry \\ \hline
-3. Temporal Sorting & Chronological order & Stable sort by ascending Unix epoch timestamp \\ \hline
-4. Gap Imputation & Short gaps ($\le 3$ missing) & Forward-fill last valid state; mark $\text{is\_filled}=1$ \\ \hline
-5. Downtime Flag & Long gaps ($> 3$ missing) & Isolate discontinuity; mark $\text{is\_gap}=1$ (no data fabrication) \\ \hline
-6. Outlier Analysis & Rolling median window & $|x_i - \text{median}| \ge \Delta_{\min}$; flag $\text{is\_outlier}=1$ (never drop) \\ \hline
-7. Data Retention & Aging data pruning & Purge files and records older than $\text{retention\_hours}$ \\ \hline
-\end{tabular}
+\small
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Stage} & \textbf{Operation} & \textbf{Algorithm / Criteria} \\
+\midrule
+1. Validation & Strict bounds checking & Percentage $\in [0.0, 100.0]$, Temp $\in [0, 120]^\circ\text{C}$, Floats $\ge 0$ \\
+2. Deduplication & Epoch uniqueness & Drop duplicate timestamps; resolve conflicts via latest entry \\
+3. Temporal Sorting & Chronological order & Stable sort by ascending Unix epoch timestamp \\
+4. Gap Imputation & Short gaps ($\le 3$ missing) & Forward-fill last valid state; mark $\text{is\_filled}=1$ \\
+5. Downtime Flag & Long gaps ($> 3$ missing) & Isolate discontinuity; mark $\text{is\_gap}=1$ (no data fabrication) \\
+6. Outlier Analysis & Rolling median window & $|x_i - \text{median}| \ge \Delta_{\min}$; flag $\text{is\_outlier}=1$ (never drop) \\
+7. Data Retention & Aging data pruning & Purge files and records older than $\text{retention\_hours}$ \\
+\bottomrule
+\end{tabularx}
 \caption{Processing stages of the \texttt{cleaner.py} pipeline.}
 \label{tab:cleaner_stages}
-\end{figure}
+\end{table}
 
 \subsubsection{Imputation Strategy for Missing Samples}
 For successive cleaned rows at timestamps $t_{i-1}$ and $t_i$, the missing sample count is defined relative to the configured interval $\tau = \text{interval\_s}$:
