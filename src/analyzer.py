@@ -159,13 +159,15 @@ def compute_top_processes(
     processes_dir: str,
     latest_epoch: Optional[int],
     window_s: int = 3600,
-    top_n: int = 5,
+    top_n: int = 50,
     cpu_cores: int = 1,
+    active_window_s: int = 180,
 ) -> List[Dict[str, Any]]:
     """Compute top processes by average CPU and memory over recent window.
     
     Includes avg_cpu (raw ps average) and avg_cpu_normalized (scaled to total
     system capacity across cores, matching desktop system monitors like Resources).
+    Filters out dead/closed processes not seen in active_window_s.
     """
     if not os.path.isdir(processes_dir):
         return []
@@ -176,6 +178,7 @@ def compute_top_processes(
         return []
 
     records_by_command: Dict[str, List[Tuple[float, float]]] = {}
+    last_seen_by_command: Dict[str, float] = {}
 
     for file_path in files:
         try:
@@ -199,8 +202,22 @@ def compute_top_processes(
                     if cmd not in records_by_command:
                         records_by_command[cmd] = []
                     records_by_command[cmd].append((cpu, mem))
+                    if epoch_val is not None:
+                        last_seen_by_command[cmd] = max(last_seen_by_command.get(cmd, 0.0), epoch_val)
         except Exception:
             continue
+
+    if not records_by_command:
+        return []
+
+    # Exclude processes that have stopped or closed (not seen in active_window_s)
+    if active_window_s and last_seen_by_command:
+        ref_epoch = latest_epoch if latest_epoch is not None else max(last_seen_by_command.values())
+        records_by_command = {
+            cmd: samples
+            for cmd, samples in records_by_command.items()
+            if (ref_epoch - last_seen_by_command.get(cmd, 0.0)) <= active_window_s
+        }
 
     if not records_by_command:
         return []

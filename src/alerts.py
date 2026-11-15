@@ -350,6 +350,16 @@ def notify(ev, log_path):
     else:
         log_line(log_path, "notify-send not available, skipping desktop popup")
 
+    sound_player = shutil.which("canberra-gtk-play")
+    if sound_player and not os.environ.get("SYSMON_NO_SOUND"):
+        # Play the same notification sound as when a test alert is fired
+        sound_id = "dialog-warning"
+        try:
+            subprocess.run([sound_player, "-i", sound_id], timeout=3, capture_output=True)
+            channels.append("sound")
+        except Exception:
+            pass
+
     host, to = os.environ.get("SYSMON_SMTP_HOST"), os.environ.get("SYSMON_SMTP_TO")
     if host and to:
         try:
