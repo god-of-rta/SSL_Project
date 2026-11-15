@@ -6,7 +6,7 @@
 
 const METRICS = Object.keys(METRIC_LABELS);
 const SYSMON_FIELDS = ["interval_s", "pipeline_interval_s", "gpu_poll_every", "retention_hours"];
-const SYSMON_TOGGLES = ["collect_gpu", "simulate_temp", "alerts_enabled"];
+const SYSMON_TOGGLES = ["collect_gpu", "alerts_enabled"];
 
 let loadedConfig = null;     // last config from the server
 let removedRules = new Set(); // rules deleted in the UI, sent as null
@@ -63,8 +63,8 @@ function render(config) {
     removedRules = new Set();
 
     const sysmon = config.sysmon || {};
-    SYSMON_FIELDS.forEach((id) => { $(id).value = sysmon[id] ?? ""; });
-    SYSMON_TOGGLES.forEach((id) => { $(id).checked = sysmon[id] === true; });
+    SYSMON_FIELDS.forEach((id) => { const el = $(id); if (el) el.value = sysmon[id] ?? ""; });
+    SYSMON_TOGGLES.forEach((id) => { const el = $(id); if (el) el.checked = sysmon[id] === true; });
 
     const rules = config.thresholds || {};
     const names = Object.keys(rules).sort((a, b) =>
@@ -126,8 +126,8 @@ document.querySelector("main").addEventListener("change", (event) => {
 
 function collect() {
     const sysmon = {};
-    SYSMON_FIELDS.forEach((id) => { if ($(id).value !== "") sysmon[id] = Number($(id).value); });
-    SYSMON_TOGGLES.forEach((id) => { sysmon[id] = $(id).checked; });
+    SYSMON_FIELDS.forEach((id) => { const el = $(id); if (el && el.value !== "") sysmon[id] = Number(el.value); });
+    SYSMON_TOGGLES.forEach((id) => { const el = $(id); if (el) sysmon[id] = el.checked; });
 
     const thresholds = {};
 

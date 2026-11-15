@@ -517,6 +517,7 @@ async function runAction(button, path, success) {
             await post(path);
             showToast(success, "success");
             await loadDashboard();
+            await refreshAlerts();
         } catch (error) {
             console.error(error);
             showToast(error.message || "Action failed. Check the backend connection.", "error");

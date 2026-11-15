@@ -451,12 +451,20 @@ function playAlertRing() {
     const ctx = audioContext();
     if (!ctx) return;
 
-    const master = ctx.createGain();
-    master.gain.value = 0.3;
-    master.connect(ctx.destination);
+    const play = () => {
+        const master = ctx.createGain();
+        master.gain.value = 0.3;
+        master.connect(ctx.destination);
 
-    const now = ctx.currentTime + 0.02;
-    [0, 0.5, 1.0].forEach((offset) => bellStrike(ctx, master, now + offset));
+        const now = ctx.currentTime + 0.02;
+        [0, 0.5, 1.0].forEach((offset) => bellStrike(ctx, master, now + offset));
+    };
+
+    if (ctx.state === "suspended") {
+        ctx.resume().then(play).catch(() => {});
+    } else {
+        play();
+    }
 }
 
 // Re-fetch whatever the current page shows after a quick action.
@@ -534,8 +542,11 @@ async function refreshAlerts() {
         const ids = new Set(alerts.map((a) => a.id));
 
         if (knownAlertIds) {
-            alerts
-                .filter((a) => !knownAlertIds.has(a.id) && a.state === "firing")
+            const newFiring = alerts.filter((a) => !knownAlertIds.has(a.id) && a.state === "firing");
+            if (newFiring.length > 0) {
+                playAlertRing();
+            }
+            newFiring
                 .slice(0, 3)
                 .forEach((a) => showToast(
                     `${ruleLabel(a.rule)}: ${alertSummary(a)}`,
