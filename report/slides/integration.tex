@@ -1,13 +1,10 @@
 \section{Integration and Profiling}
 
-\begin{frame}{Performance Profiling and Hardware Optimizations}
+\begin{frame}{Performance Issues}
     \begin{itemize}
-        \setlength{\itemsep}{4pt}
-        \item \textbf{Minimal Probe Footprint:} Collector CPU is under \textbf{0.74\%} even under stress load, using just \textbf{4.2 MB} RAM.
-        \item \textbf{Eliminated GPU Wakeup Stalls:} Skips \texttt{nvidia-smi} when dGPU sleeps in D3cold, slashing latency from \textbf{520 ms to 34 ms}.
-        \item \textbf{Smart Pipeline Caching:} Stamp caching and \texttt{--since} filtering make analysis up to \textbf{6.2$\times$ faster}.
+        \setlength{\itemsep}{8pt}
+        \item \textbf{CPU Heating and Temperature Spikes:} Fixed by reducing GPU wakeups in sleep states and limiting subprocess thread pools to 1 thread.
+        \item \textbf{Pipeline Execution Bottlenecks:} Introduced fingerprint caching to skip unchanged runs ($4.1\times$ faster) and incremental \texttt{--since} analysis ($6.2\times$ faster).
+        \item \textbf{Transient Process Spikes:} Filtered short-lived processes ($<2$\,s) to eliminate false $3000\%+$ division artifacts, and normalized core usage to $100\%$.
     \end{itemize}
-    \vspace{0.3em}
-    \centering
-    \includegraphics[width=0.92\textwidth]{figures/profiling_benchmarks.jpg}
 \end{frame}

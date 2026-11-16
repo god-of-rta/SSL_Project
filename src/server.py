@@ -298,7 +298,7 @@ def get_metrics():
     df = df.sort_values('epoch')
     latest_epoch = int(df['epoch'].max())
 
-    # For range=1h (live dashboard window), seamlessly append any fresh raw samples
+    # For range=1h (live dashboard window), append any fresh raw samples
     # written by the collector that have not yet been processed by the background cleaner.
     if time_range == '1h':
         raw_dir = os.path.join(DATA_DIR, 'raw')

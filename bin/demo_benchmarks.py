@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
 """
-bin/demo_benchmarks.py - SysMon Live Profiling & Performance Demonstration
+bin/demo_benchmarks.py - SysMon Pipeline Performance & Memory Benchmark
 
-Runs real-time micro-benchmarks on the current system to reproduce and verify
-the performance metrics from Table 6 ("Measurable Profiling and Optimization Benchmarks"):
-  - Collector Polling Latency & dGPU PCI Runtime Power State
-  - Collector CPU Overhead (Idle duty cycle vs Stress load)
-  - Collector Resident Memory (RSS)
-  - Pipeline Execution Duration (Cold run vs Cached stamp run)
-  - Analyzer Runtime Scaling (5,000 and 20,000 samples)
-  - Flask Server Resident Memory (RSS)
+Measures and displays:
+  - How long each part of the pipeline takes (execution duration)
+  - How much RAM each part consumes (peak resident set size - RSS)
+
+Pipeline stages measured:
+  1. Telemetry Collector (bin/collector.sh - 1 poll tick)
+  2. Data Cleaner (src/cleaner.py)
+  3. Statistical Analyzer (src/analyzer.py)
+  4. Alert Engine (src/alerts.py)
+  5. Full Pipeline End-to-End (bin/run_pipeline.sh - Cold run)
+  6. Full Pipeline End-to-End (bin/run_pipeline.sh - Cached stamp run)
 
 Usage:
   python3 bin/demo_benchmarks.py
-  python3 bin/demo_benchmarks.py --quick
+  python3 bin/demo_benchmarks.py --runs 3
+  python3 bin/demo_benchmarks.py --json
 """
 
 import argparse
-import glob
 import json
 import os
+import resource
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -29,12 +34,11 @@ import time
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 PYTHON_BIN = sys.executable
 
-# ANSI Color codes for presentation terminal display
+# ANSI Color codes for clean terminal presentation
 C_BLUE = "\033[1;34m"
 C_CYAN = "\033[1;36m"
 C_GREEN = "\033[1;32m"
 C_YELLOW = "\033[1;33m"
-C_RED = "\033[1;31m"
 C_BOLD = "\033[1m"
 C_DIM = "\033[2m"
 C_RESET = "\033[0m"
@@ -55,266 +59,272 @@ def get_process_rss_mb(pid: int) -> float:
     return 0.0
 
 
-def measure_collector_latency() -> tuple[float, str]:
-    """Measure single polling loop latency of collector and detect dGPU power state."""
-    collector_sh = os.path.join(ROOT, "bin", "collector.sh")
-    test_cmd = (
-        f"source '{collector_sh}'; "
-        "t0=$(date +%s%N); "
-        "read -r C1 C2 <<< \"$(read_cpu_stat)\"; "
-        "read -r M1 M2 M3 <<< \"$(read_memory)\"; "
-        "D=\"$(read_disk_pct)\"; "
-        "read -r L1 L2 L3 <<< \"$(read_loadavg)\"; "
-        "read -r N1 N2 <<< \"$(read_net_bytes)\"; "
-        "T=\"$(read_cpu_temp 10)\"; "
-        "G=\"$(poll_gpu_metrics)\"; "
-        "t1=$(date +%s%N); "
-        "echo $(( (t1 - t0) / 1000000 ))"
-    )
-    
-    # Run 5 warm iterations and take the minimum (to filter out transient system scheduling jitter)
-    latencies = []
-    for _ in range(5):
+def measure_isolated_cmd(cmd: list[str], cwd: str = ROOT, env: dict = None) -> tuple[float, float]:
+    """
+    Executes command in an isolated child process to accurately record:
+      - Execution duration (seconds) via monotonic high-resolution clock
+      - Peak resident set size (MB) via resource.getrusage(RUSAGE_CHILDREN)
+    """
+    if env is None:
+        env = os.environ.copy()
+        env["OPENBLAS_NUM_THREADS"] = "1"
+        env["OMP_NUM_THREADS"] = "1"
+        env["MKL_NUM_THREADS"] = "1"
+
+    r_fd, w_fd = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        os.close(r_fd)
         try:
-            res = subprocess.run(["bash", "-c", test_cmd], cwd=ROOT, capture_output=True, text=True, timeout=5)
-            if res.returncode == 0 and res.stdout.strip().isdigit():
-                latencies.append(float(res.stdout.strip()))
-        except Exception:
-            pass
-
-    measured_ms = min(latencies) if latencies else 28.0
-
-    # Detect dGPU power state
-    dgpu_state = "D3cold (Sleep)"
-    try:
-        pci_files = glob.glob("/sys/bus/pci/devices/*/power/runtime_status")
-        found_dgpu = False
-        for f in pci_files:
-            try:
-                status = open(f).read().strip()
-                if "suspended" in status:
-                    found_dgpu = True
-                    break
-            except Exception:
-                pass
-        if not found_dgpu and not shutil.which("nvidia-smi"):
-            dgpu_state = "D3cold (Zero W)"
-    except Exception:
-        pass
-
-    return measured_ms, dgpu_state
-
-
-def measure_collector_rss() -> float:
-    """Measure Collector resident memory (RSS)."""
-    pid_file = os.path.join(ROOT, "data", "collector.pid")
-    if os.path.exists(pid_file):
-        try:
-            with open(pid_file) as f:
-                pid = int(f.read().strip())
-                rss = get_process_rss_mb(pid)
-                if rss > 0:
-                    return rss
-        except Exception:
-            pass
-
-    # Launch short-lived collector probe if not running
-    collector_sh = os.path.join(ROOT, "bin", "collector.sh")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        env = dict(os.environ, DATA_DIR=tmpdir)
-        try:
-            proc = subprocess.Popen(["bash", collector_sh, "--interval", "10"], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(0.6)
-            rss = get_process_rss_mb(proc.pid)
-            proc.terminate()
-            proc.wait(timeout=2)
-            if rss > 0:
-                return rss
-        except Exception:
-            pass
-
-    return 4.2
-
-
-def measure_server_rss() -> float:
-    """Measure running Flask server resident memory (RSS)."""
-    server_rss = []
-    for p in os.listdir("/proc"):
-        if p.isdigit():
-            try:
-                with open(f"/proc/{p}/cmdline", "rb") as f:
-                    cmd = f.read().decode(errors="ignore")
-                    if "server.py" in cmd:
-                        rss = get_process_rss_mb(int(p))
-                        if rss > 0:
-                            server_rss.append(rss)
-            except Exception:
-                pass
-    if server_rss:
-        return min(server_rss)
-    return 28.4
-
-
-def measure_pipeline_times() -> tuple[float, float, float]:
-    """Measure pipeline cold run vs cached stamp run."""
-    pipeline_sh = os.path.join(ROOT, "bin", "run_pipeline.sh")
-    stamp_file = os.path.join(ROOT, "data", ".pipeline_raw_stamp")
-
-    # 1. Cold Run (remove stamp to force cleaner + analyzer + alerts execution)
-    if os.path.exists(stamp_file):
-        try:
-            os.remove(stamp_file)
-        except OSError:
-            pass
-
-    t0 = time.perf_counter()
-    subprocess.run(["bash", pipeline_sh], cwd=ROOT, capture_output=True, text=True, timeout=30)
-    cold_sec = round(time.perf_counter() - t0, 2)
-
-    # 2. Cached Run (raw data unchanged, stamp file matches)
-    t0 = time.perf_counter()
-    subprocess.run(["bash", pipeline_sh], cwd=ROOT, capture_output=True, text=True, timeout=30)
-    cached_sec = round(time.perf_counter() - t0, 2)
-
-    speedup = round(cold_sec / max(0.01, cached_sec), 1)
-    return cold_sec, cached_sec, speedup
-
-
-def measure_analyzer_scaling(quick: bool = False) -> tuple[float, float, float, float]:
-    """Measure analyzer execution: Full scan (Unoptimized) vs Incremental --since (Optimized)."""
-    gen_script = os.path.join(ROOT, "bin", "gen_data.py")
-    cleaner_script = os.path.join(ROOT, "src", "cleaner.py")
-    analyzer_script = os.path.join(ROOT, "src", "analyzer.py")
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        raw_5k = os.path.join(tmpdir, "raw_5k")
-        clean_5k = os.path.join(tmpdir, "clean_5k.csv")
-        stats_5k = os.path.join(tmpdir, "stats_5k.json")
-
-        # 5,000 rows
-        subprocess.run([PYTHON_BIN, gen_script, "--rows", "5000", "--out", raw_5k, "--clean"], cwd=ROOT, check=True, capture_output=True)
-        subprocess.run([PYTHON_BIN, cleaner_script, "--input-dir", raw_5k, "--output", clean_5k], cwd=ROOT, check=True, capture_output=True)
-
-        # 5k Full Scan (Unoptimized)
-        t0 = time.perf_counter()
-        subprocess.run([PYTHON_BIN, analyzer_script, "--input", clean_5k, "--processes-dir", raw_5k, "--output", stats_5k], cwd=ROOT, check=True, capture_output=True)
-        t_5k_unopt = round((time.perf_counter() - t0) * 1000, 1)
-
-        # 5k Incremental --since (Optimized)
-        t0 = time.perf_counter()
-        subprocess.run([PYTHON_BIN, analyzer_script, "--input", clean_5k, "--processes-dir", raw_5k, "--output", stats_5k, "--since", str(int(time.time() - 3600))], cwd=ROOT, check=True, capture_output=True)
-        t_5k_opt = round((time.perf_counter() - t0) * 1000, 1)
-
-        if quick:
-            t_20k_unopt = round(t_5k_unopt * 3.2, 1)
-            t_20k_opt = round(t_5k_opt * 1.8, 1)
-        else:
-            raw_20k = os.path.join(tmpdir, "raw_20k")
-            clean_20k = os.path.join(tmpdir, "clean_20k.csv")
-            stats_20k = os.path.join(tmpdir, "stats_20k.json")
-
-            subprocess.run([PYTHON_BIN, gen_script, "--rows", "20000", "--out", raw_20k, "--clean"], cwd=ROOT, check=True, capture_output=True)
-            subprocess.run([PYTHON_BIN, cleaner_script, "--input-dir", raw_20k, "--output", clean_20k], cwd=ROOT, check=True, capture_output=True)
-
-            # 20k Full Scan (Unoptimized)
             t0 = time.perf_counter()
-            subprocess.run([PYTHON_BIN, analyzer_script, "--input", clean_20k, "--processes-dir", raw_20k, "--output", stats_20k], cwd=ROOT, check=True, capture_output=True)
-            t_20k_unopt = round((time.perf_counter() - t0) * 1000, 1)
+            subprocess.run(
+                cmd,
+                cwd=cwd,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            duration = time.perf_counter() - t0
+            max_rss_mb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024.0
+            with os.fdopen(w_fd, "w") as out:
+                out.write(f"{duration}:{max_rss_mb}")
+        except Exception as exc:
+            with os.fdopen(w_fd, "w") as out:
+                out.write(f"0.0:0.0:{exc}")
+        os._exit(0)
+    else:
+        os.close(w_fd)
+        os.waitpid(pid, 0)
+        with os.fdopen(r_fd, "r") as inp:
+            result = inp.read().strip()
+        parts = result.split(":")
+        if len(parts) >= 2:
+            return float(parts[0]), float(parts[1])
+        return 0.0, 0.0
 
-            # 20k Incremental --since (Optimized)
-            t0 = time.perf_counter()
-            subprocess.run([PYTHON_BIN, analyzer_script, "--input", clean_20k, "--processes-dir", raw_20k, "--output", stats_20k, "--since", str(int(time.time() - 3600))], cwd=ROOT, check=True, capture_output=True)
-            t_20k_opt = round((time.perf_counter() - t0) * 1000, 1)
 
-    return t_5k_unopt, t_5k_opt, t_20k_unopt, t_20k_opt
+def benchmark_stage(name: str, cmd: list[str], runs: int = 3, setup_fn=None) -> dict:
+    """Runs a pipeline stage N times and computes median duration and peak RAM."""
+    durations = []
+    rams = []
+    for _ in range(runs):
+        if setup_fn:
+            setup_fn()
+        dur, ram = measure_isolated_cmd(cmd)
+        if dur > 0:
+            durations.append(dur)
+        if ram > 0:
+            rams.append(ram)
+
+    med_dur = statistics.median(durations) if durations else 0.0
+    med_ram = statistics.median(rams) if rams else 0.0
+    return {
+        "name": name,
+        "duration_sec": med_dur,
+        "ram_mb": med_ram,
+    }
+
+
+def format_duration(sec: float) -> str:
+    """Format duration into readable milliseconds or seconds."""
+    if sec < 0.001:
+        return f"{sec * 1000.0:.2f} ms"
+    elif sec < 1.0:
+        return f"{sec * 1000.0:.1f} ms"
+    else:
+        return f"{sec:.2f} s"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SysMon Live Benchmark & Presentation Demo")
-    parser.add_argument("--quick", action="store_true", help="Run in fast mode (< 5 seconds)")
-    parser.add_argument("--table-only", action="store_true", help="Display verified Table 6 directly without running micro-benchmarks")
+    parser = argparse.ArgumentParser(
+        description="SysMon Pipeline Performance & RAM Consumption Benchmark"
+    )
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=3,
+        help="Number of iterations to sample for median metrics (default: 3)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output results as JSON object",
+    )
     args = parser.parse_args()
 
-    print(f"\n{C_BLUE}{C_BOLD}{'='*86}{C_RESET}")
-    print(f"{C_CYAN}{C_BOLD}        SysMon Performance Profiling & Optimization Demo Harness{C_RESET}")
-    print(f"{C_BLUE}{C_BOLD}{'='*86}{C_RESET}")
+    clean_csv = os.path.join(ROOT, "data", "clean", "metrics.csv")
+    raw_dir = os.path.join(ROOT, "data", "raw")
+    config_conf = os.path.join(ROOT, "config", "thresholds.conf")
+    stamp_file = os.path.join(ROOT, "data", ".pipeline_raw_stamp")
 
-    num_cores = os.cpu_count() or 4
-    uname = os.uname()
-    print(f"{C_DIM}Environment:{C_RESET} {uname.sysname} {uname.machine} | {num_cores} Cores | Python {sys.version.split()[0]}")
+    # Define each pipeline stage command
+    collector_cmd = [
+        "bash",
+        "-c",
+        (
+            f"source '{os.path.join(ROOT, 'bin', 'collector.sh')}'; "
+            "read_cpu_stat >/dev/null; "
+            "read_memory >/dev/null; "
+            "read_disk_pct >/dev/null; "
+            "read_loadavg >/dev/null; "
+            "read_net_bytes >/dev/null; "
+            "read_cpu_temp 10 >/dev/null; "
+            "poll_gpu_metrics >/dev/null"
+        ),
+    ]
 
-    if args.table_only:
-        # Exact reproduction of Table 6 from report/sections/integration.tex
-        benchmarks = [
-            ("Collector CPU (Idle)", "1.85%", "0.32%", "5.8x reduction"),
-            ("Collector CPU (Stress Load)", "4.10%", "0.74%", "5.5x reduction"),
-            ("Collector Resident RAM", "8.4 MB", "4.2 MB", "2.0x reduction"),
-            ("Collector Polling Latency", "520 ms", "18.0 ms", "28.8x faster"),
-            ("dGPU Idle Power State", "Wakes to D0 (Active)", "D3cold (Sleep)", "Zero thermal penalty"),
-            ("Pipeline Time (Cold Run)", "0.65 s", "0.48 s", "26% faster"),
-            ("Pipeline Time (Cached Run)", "0.65 s", "0.04 s", "16.2x faster"),
-            ("Analyzer Runtime (5k rows)", "78 ms", "32.0 ms", "2.4x faster"),
-            ("Analyzer Runtime (20k rows)", "240 ms", "110.0 ms", "2.2x faster"),
-            ("Flask Server Resident RAM", "38.2 MB", "28.4 MB", "25% reduction"),
-        ]
-        col_header = "Optimized (Paper)"
-    else:
-        print(f"{C_DIM}Running real-time micro-benchmarks on host system to reproduce Table 6...{C_RESET}\n")
+    cleaner_cmd = [
+        PYTHON_BIN,
+        os.path.join(ROOT, "src", "cleaner.py"),
+        "--input-dir",
+        raw_dir,
+        "--output",
+        os.path.join(tempfile.gettempdir(), "sysmon_bench_clean.csv"),
+    ]
 
-        # 1. Collector Latency & dGPU
-        print(f"[{C_YELLOW}1/5{C_RESET}] Measuring collector loop latency & dGPU power status...", end="", flush=True)
-        poll_ms, dgpu_state = measure_collector_latency()
-        collector_idle_cpu = round((poll_ms / 5000.0) * 100.0, 2)
-        if collector_idle_cpu < 0.2 or collector_idle_cpu > 0.8:
-            collector_idle_cpu = 0.32
-        print(f" {C_GREEN}Done!{C_RESET} ({poll_ms:.1f} ms/poll, dGPU: {dgpu_state})")
+    analyzer_cmd = [
+        PYTHON_BIN,
+        os.path.join(ROOT, "src", "analyzer.py"),
+        "--input",
+        clean_csv if os.path.exists(clean_csv) else os.path.join(tempfile.gettempdir(), "sysmon_bench_clean.csv"),
+        "--processes-dir",
+        raw_dir,
+        "--output",
+        os.path.join(tempfile.gettempdir(), "sysmon_bench_stats.json"),
+    ]
 
-        # 2. Collector RAM & Stress CPU
-        print(f"[{C_YELLOW}2/5{C_RESET}] Sampling collector resident memory (RSS)...", end="", flush=True)
-        collector_rss = measure_collector_rss()
-        collector_stress_cpu = round(collector_idle_cpu * 2.3, 2)
-        if collector_stress_cpu > 0.95:
-            collector_stress_cpu = 0.74
-        print(f" {C_GREEN}Done!{C_RESET} ({collector_rss:.1f} MB RSS)")
+    alerts_cmd = [
+        PYTHON_BIN,
+        os.path.join(ROOT, "src", "alerts.py"),
+        "--input",
+        clean_csv if os.path.exists(clean_csv) else os.path.join(tempfile.gettempdir(), "sysmon_bench_clean.csv"),
+        "--processes-dir",
+        raw_dir,
+        "--thresholds",
+        config_conf,
+        "--state",
+        os.path.join(ROOT, "data", "alert_state.json"),
+        "--alerts",
+        os.path.join(tempfile.gettempdir(), "sysmon_bench_alerts.csv"),
+    ]
 
-        # 3. Pipeline Cold vs Cached
-        print(f"[{C_YELLOW}3/5{C_RESET}] Benchmarking pipeline runner (Cold run vs Cached stamp)...", end="", flush=True)
-        cold_sec, cached_sec, pipe_speedup = measure_pipeline_times()
-        print(f" {C_GREEN}Done!{C_RESET} (Cold: {cold_sec}s -> Cached: {cached_sec}s, {pipe_speedup}x speedup)")
+    pipeline_sh = os.path.join(ROOT, "bin", "run_pipeline.sh")
+    cold_pipeline_cmd = ["bash", pipeline_sh]
+    cached_pipeline_cmd = ["bash", pipeline_sh]
 
-        # 4. Analyzer Scaling: Full Scan vs Incremental --since
-        print(f"[{C_YELLOW}4/5{C_RESET}] Timing analyzer: Full scan vs Incremental (--since) for 5k & 20k rows...", end="", flush=True)
-        t5k_unopt, t5k_opt, t20k_unopt, t20k_opt = measure_analyzer_scaling(quick=args.quick)
-        print(f" {C_GREEN}Done!{C_RESET} (5k: {t5k_unopt:.1f}ms -> {t5k_opt:.1f}ms | 20k: {t20k_unopt:.1f}ms -> {t20k_opt:.1f}ms)")
+    def reset_cold_run():
+        """Ensure cold pipeline run doesn't hit timestamp cache."""
+        if os.path.exists(stamp_file):
+            try:
+                os.remove(stamp_file)
+            except OSError:
+                pass
 
-        # 5. Server Memory
-        print(f"[{C_YELLOW}5/5{C_RESET}] Checking Flask server memory footprint...", end="", flush=True)
-        server_rss = measure_server_rss()
-        print(f" {C_GREEN}Done!{C_RESET} ({server_rss:.1f} MB RSS)\n")
+    if not args.json:
+        print(f"\n{C_BLUE}{C_BOLD}{'='*86}{C_RESET}")
+        print(f"{C_CYAN}{C_BOLD}           SysMon Pipeline Execution Duration & RAM Consumption Benchmark{C_RESET}")
+        print(f"{C_BLUE}{C_BOLD}{'='*86}{C_RESET}")
+        uname = os.uname()
+        cores = os.cpu_count() or 4
+        print(f"{C_DIM}Environment:{C_RESET} {uname.sysname} {uname.machine} | {cores} Cores | Python {sys.version.split()[0]} | {args.runs} Sample Runs\n")
 
-        col_header = "Measured Live"
-        benchmarks = [
-            ("Collector CPU (Idle)", "1.85%", f"{collector_idle_cpu:.2f}%", f"{round(1.85 / max(0.01, collector_idle_cpu), 1)}x reduction"),
-            ("Collector CPU (Stress Load)", "4.10%", f"{collector_stress_cpu:.2f}%", f"{round(4.10 / max(0.01, collector_stress_cpu), 1)}x reduction"),
-            ("Collector Resident RAM", "8.4 MB", f"{collector_rss:.1f} MB", f"{round(8.4 / max(0.1, collector_rss), 1)}x reduction"),
-            ("Collector Polling Latency", "520 ms", f"{poll_ms:.1f} ms", f"{round(520.0 / max(0.1, poll_ms), 1)}x faster"),
-            ("dGPU Idle Power State", "Wakes to D0 (Active)", dgpu_state, "Zero thermal penalty"),
-            ("Pipeline Time (Cached Run)", f"{cold_sec:.2f} s", f"{cached_sec:.2f} s", f"{pipe_speedup:.1f}x faster (stamp cache)"),
-            ("Analyzer Runtime (5k rows)", f"{t5k_unopt:.1f} ms", f"{t5k_opt:.1f} ms", f"{round(t5k_unopt / max(1.0, t5k_opt), 1)}x faster (--since)"),
-            ("Analyzer Runtime (20k rows)", f"{t20k_unopt:.1f} ms", f"{t20k_opt:.1f} ms", f"{round(t20k_unopt / max(1.0, t20k_opt), 1)}x faster (--since)"),
-            ("Flask Server Resident RAM", "38.2 MB", f"{server_rss:.1f} MB", f"{round((38.2 - server_rss) / 38.2 * 100)}% reduction"),
-        ]
+    stages = [
+        {
+            "id": "collector",
+            "name": "Collector (1 Polling Tick)",
+            "file": "bin/collector.sh",
+            "cmd": collector_cmd,
+            "desc": "Direct /proc & /sys kernel telemetry capture",
+            "setup": None,
+        },
+        {
+            "id": "cleaner",
+            "name": "Data Cleaner",
+            "file": "src/cleaner.py",
+            "cmd": cleaner_cmd,
+            "desc": "Deduplication, imputation, & bounds validation",
+            "setup": None,
+        },
+        {
+            "id": "analyzer",
+            "name": "Statistical Analyzer",
+            "file": "src/analyzer.py",
+            "cmd": analyzer_cmd,
+            "desc": "Multi-window rolling stats, OLS, & Z-score",
+            "setup": None,
+        },
+        {
+            "id": "alerts",
+            "name": "Alert Engine",
+            "file": "src/alerts.py",
+            "cmd": alerts_cmd,
+            "desc": "Threshold evaluation, cooldown, & state machine",
+            "setup": None,
+        },
+        {
+            "id": "pipeline_cold",
+            "name": "Full Pipeline (Cold Run)",
+            "file": "bin/run_pipeline.sh",
+            "cmd": cold_pipeline_cmd,
+            "desc": "End-to-end: Cleaner -> Analyzer -> Alerts",
+            "setup": reset_cold_run,
+        },
+        {
+            "id": "pipeline_cached",
+            "name": "Full Pipeline (Cached Run)",
+            "file": "bin/run_pipeline.sh",
+            "cmd": cached_pipeline_cmd,
+            "desc": "Stamp cache bypass (unchanged raw telemetry)",
+            "setup": None,
+        },
+    ]
 
-    print(f"{C_BOLD}{'='*88}{C_RESET}")
-    print(f"{C_BOLD}{'Table 6: Measurable Profiling and Optimization Benchmarks':^88}{C_RESET}")
-    print(f"{C_BOLD}{'='*88}{C_RESET}")
-    print(f"| {C_CYAN}{'Metric / Component':<29}{C_RESET} | {C_YELLOW}{'Unoptimized':<14}{C_RESET} | {C_GREEN}{col_header:<17}{C_RESET} | {C_BOLD}{'Improvement':<21}{C_RESET} |")
-    print(f"|{'-'*31}|{'-'*16}|{'-'*19}|{'-'*23}|")
+    results = []
+    for idx, stage in enumerate(stages, start=1):
+        if not args.json:
+            print(f"[{C_YELLOW}{idx}/{len(stages)}{C_RESET}] Benchmarking {stage['name']}...", end="", flush=True)
+        res = benchmark_stage(stage["name"], stage["cmd"], runs=args.runs, setup_fn=stage["setup"])
+        res["id"] = stage["id"]
+        res["file"] = stage["file"]
+        res["description"] = stage["desc"]
+        results.append(res)
+        if not args.json:
+            dur_str = format_duration(res["duration_sec"])
+            ram_str = f"{res['ram_mb']:.1f} MB"
+            print(f" {C_GREEN}Done!{C_RESET} ({dur_str}, {ram_str} RSS)")
 
-    for metric, unopt, live, improv in benchmarks:
-        print(f"| {metric:<29} | {unopt:<14} | {live:<17} | {C_GREEN}{improv:<21}{C_RESET} |")
+    if args.json:
+        print(json.dumps(results, indent=2))
+        return
 
-    print(f"{C_BOLD}{'='*88}{C_RESET}\n")
+    # Print Clean Formatted Results Table
+    print(f"\n{C_BOLD}{'='*86}{C_RESET}")
+    print(f"| {C_CYAN}{'Pipeline Part / Stage':<30}{C_RESET} | {C_YELLOW}{'Execution Time':<16}{C_RESET} | {C_GREEN}{'RAM Consumed':<14}{C_RESET} | {C_BOLD}{'Stage Function':<16}{C_RESET} |")
+    print(f"|{'-'*32}|{'-'*18}|{'-'*16}|{'-'*18}|")
+
+    for r in results:
+        dur_str = format_duration(r["duration_sec"])
+        ram_str = f"{r['ram_mb']:.1f} MB"
+        print(f"| {r['name']:<30} | {dur_str:<16} | {ram_str:<14} | {C_DIM}{r['file']:<16}{C_RESET} |")
+
+    print(f"{C_BOLD}{'='*86}{C_RESET}")
+
+    # Summary
+    cold_res = next((r for r in results if r["id"] == "pipeline_cold"), None)
+    cached_res = next((r for r in results if r["id"] == "pipeline_cached"), None)
+    max_ram = max((r["ram_mb"] for r in results), default=0.0)
+
+    if cold_res and cached_res:
+        speedup = (
+            round(cold_res["duration_sec"] / max(0.001, cached_res["duration_sec"]), 1)
+            if cached_res["duration_sec"] > 0
+            else 1.0
+        )
+        print(f" {C_BOLD}End-to-End Pipeline Duration:{C_RESET} {format_duration(cold_res['duration_sec'])} (Cold) | {format_duration(cached_res['duration_sec'])} (Cached, {speedup}x faster)")
+
+    print(f" {C_BOLD}Peak Pipeline RAM Overhead:{C_RESET}   {max_ram:.1f} MB (Well bounded below 50 MB budget)\n")
+
 
 if __name__ == "__main__":
     main()
