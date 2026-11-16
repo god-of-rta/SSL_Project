@@ -203,4 +203,4 @@ To prevent unbounded disk growth during long monitoring sessions, `config/sysmon
 
 ## 📄 License & Academic Integrity
 
-This project is developed for the **Unix Tools / System Software Laboratory (SSL)** coursework.
+This project is developed for the **Software Systems Laboratory (SSL)** coursework.
