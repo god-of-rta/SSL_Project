@@ -7,9 +7,13 @@
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[light,medium,sfdefault]{FiraSans}
-\usepackage{ebgaramond}
-\usepackage{FiraMono}
+\IfFileExists{FiraSans.sty}{%
+  \usepackage[light,medium,sfdefault]{FiraSans}%
+  \usepackage{ebgaramond}%
+  \usepackage{FiraMono}%
+}{%
+  \usepackage{lmodern}%
+}
 \usepackage{microtype}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -109,6 +113,13 @@
   showstringspaces=false
 }
 
+% --- TikZ styles needed by the Alerts slides (from alerts_slides.tex) ---
+\tikzset{
+  box/.style={draw=#1,thick,rounded corners=3pt,fill=Graphite,text=Ivory,align=center,
+              inner sep=3pt,text width=2.9cm,minimum height=0.85cm},
+  arr/.style={-{Stealth},thick,draw=Muted}
+}
+
 \title[SysMon]{Unix System Monitoring}
 \subtitle{SSL Course Project}
 \author{}
@@ -152,11 +163,12 @@
 \begin{frame}{Outline}
     \vspace{0.65em}
     \begin{tabularx}{0.94\linewidth}{@{}p{0.9cm}X@{}}
-        {\large\color{Violet}\textbf{01}} & {\large\color{Ivory}Introduction and Architecture}\\[1.15em]
-        {\large\color{Violet}\textbf{02}} & {\large\color{Ivory}Telemetry Collection and Data Cleaning}\\[1.15em]
-        {\large\color{Violet}\textbf{03}} & {\large\color{Ivory}Statistical Analysis and Pipeline Automation}\\[1.15em]
-        {\large\color{Violet}\textbf{04}} & {\large\color{Ivory}Backend Performance and Operations}\\[1.15em]
-        {\large\color{Violet}\textbf{05}} & {\large\color{Ivory}Alerting and Profiling}\\
+        {\large\color{Violet}\textbf{01}} & {\large\color{Ivory}Introduction and Architecture}\\[0.9em]
+        {\large\color{Violet}\textbf{02}} & {\large\color{Ivory}Telemetry Collection and Data Cleaning}\\[0.9em]
+        {\large\color{Violet}\textbf{03}} & {\large\color{Ivory}Statistical Analysis and Pipeline Automation}\\[0.9em]
+        {\large\color{Violet}\textbf{04}} & {\large\color{Ivory}Alerts System}\\[0.9em]
+        {\large\color{Violet}\textbf{05}} & {\large\color{Ivory}Backend Performance and Operations}\\[0.9em]
+        {\large\color{Violet}\textbf{06}} & {\large\color{Ivory}Integration and Profiling}\\
     \end{tabularx}
 \end{frame}
 
@@ -279,6 +291,109 @@ $100\%$ automated test pass rate (\texttt{test\_collector.py} \& \texttt{test\_c
         \item \textbf{Automated Alert Verification:} Alert engine fired warning at 80$^\circ$C and critical at 90$^\circ$C under sustained load, automatically resolving once temperature cooled to 77$^\circ$C.
     \end{itemize}
 \end{frame}
+
+% ===== Alerts System =====
+\section{Alerts System}
+
+\begin{frame}{Real-Time Alert Engine (\texttt{src/alerts.py})}
+    \begin{itemize}
+        \setlength{\itemsep}{11pt}
+        \item \textbf{What It Is:} A lightweight tool that monitors system health (CPU, RAM, temperatures) and notifies you when safety limits are exceeded.
+        \item \textbf{How It Works:} Only alerts if high load lasts for several readings in a row (ignoring brief spikes), uses cooldowns to avoid spam, and auto-resolves when levels return to normal.
+        \item \textbf{Topics Covered:}
+        \begin{itemize}
+            \setlength{\itemsep}{4pt}
+            \item \textbf{Finding the Culprit:} Identifies which app or process is causing the spike.
+            \item \textbf{Smart Data Handling:} Ignores cleaner gap-fills to prevent false alarms.
+            \item \textbf{Alert Channels:} Sends desktop popups and updates the web dashboard in real time.
+        \end{itemize}
+    \end{itemize}
+\end{frame}
+
+{% local scope: keeps the alerts file's original spacing and bullet size
+\setlength{\parskip}{0.15em}
+\setbeamertemplate{itemize item}{\raise0.1ex\hbox{\scriptsize\textcolor{Sage}{\textbullet}}}
+
+% ===================== SLIDE 1 =====================
+\begin{frame}{Alert Engine Architecture (\texttt{src/alerts.py})}{How a threshold rule turns into an alert}
+\centering
+\begin{tikzpicture}[font=\scriptsize]
+\node[box=DustBlue] (a) at (0,0) {\textbf{1. Read}\\only new rows of\\\texttt{clean/metrics.csv}};
+\node[box=Teal]     (b) at (3.6,0) {\textbf{2. Check rules}\\each metric vs.\\its threshold};
+\node[box=Violet]   (c) at (7.2,0) {\textbf{3. State machine}\\\texttt{ok} $\rightarrow$ \texttt{firing}\\$\rightarrow$ \texttt{resolved}};
+\node[box=Champagne](d) at (10.8,0){\textbf{4. Output}\\\texttt{alerts.csv}, log,\\notifications};
+\draw[arr] (a)--(b); \draw[arr] (b)--(c); \draw[arr] (c)--(d);
+\end{tikzpicture}
+
+\vspace{0.3em}
+\footnotesize
+\begin{columns}[T]
+\begin{column}{0.49\textwidth}
+\textbf{Rules} (\texttt{config/thresholds.conf})
+\begin{itemize}
+  \item 9 metrics: CPU, memory, swap, disk, load, CPU/GPU temp, GPU use.
+  \item Per rule: \texttt{metric, op, threshold, severity} (warning / critical).
+  \item \textbf{\texttt{sustained}}: breaches in a row needed $\Rightarrow$ ignores one-off spikes.
+  \item \textbf{\texttt{cooldown\_s}}: minimum gap between repeats.
+  \item \textbf{\texttt{no\_data}}: critical if no sample for $>60$\,s (collector down).
+  \item Defaults scale to hardware (load $=2\times$ cores); invalid rules are skipped.
+\end{itemize}
+\end{column}
+\begin{column}{0.49\textwidth}
+\textbf{Evaluation logic}
+\begin{itemize}
+  \item \textbf{Fire:} breach count $\ge$ \texttt{sustained} and cooldown over.
+  \item \textbf{Resolve:} first value back in range; counter resets.
+  \item \textbf{Data-quality aware:} long gaps reset the count; filled/empty values are ignored.
+  \item \textbf{Incremental:} state in \texttt{alert\_state.json}; reads only new rows.
+  \item \textbf{Context:} logs the top CPU process at that moment.
+\end{itemize}
+\begin{block}{Example}
+\texttt{cpu\_high}: $>85\%$ for 3 samples $\Rightarrow$ firing.
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ===================== SLIDE 2 =====================
+\begin{frame}{Alert Delivery, Dashboard and Reliability}{From alert event to the user}
+\footnotesize
+\begin{columns}[T]
+\begin{column}{0.32\textwidth}
+\textbf{Delivery}
+\begin{itemize}
+  \item Runs as stage 3 of \texttt{run\_pipeline.sh}; can be switched off with \texttt{alerts\_enabled}.
+  \item Notifies on \textit{firing} only, and only for events $<5$\,min old.
+  \item Channels: desktop popup + sound; optional email (SMTP) and Telegram via env variables.
+  \item A failed channel is logged and never stops the engine.
+\end{itemize}
+\end{column}
+\begin{column}{0.34\textwidth}
+\textbf{Dashboard \& API}
+\begin{itemize}
+  \item \texttt{alerts.csv}: one row per event (time, rule, value, threshold, severity, state, process).
+  \item Alerts page: filter by state/severity, live badge, pop-up toasts.
+  \item \texttt{/api/alerts}: list, \texttt{ack}, \texttt{resolve}, \texttt{clear}, \texttt{test}.
+  \item Rules edited in Settings via \texttt{/api/config} (validated).
+\end{itemize}
+\end{column}
+\begin{column}{0.30\textwidth}
+\textbf{Reliability}
+\begin{itemize}
+  \item Atomic writes for state and config; alert rows appended in one write.
+  \item Rule validation: allow-listed metrics and operators.
+  \item \texttt{-{}-test} sends a fake alert through every channel.
+  \item 27 unit tests (\texttt{test\_alerts.py}).
+\end{itemize}
+\end{column}
+\end{columns}
+
+\vspace{0.4em}
+\begin{block}{Verified on real telemetry}
+Under sustained load: \textbf{warning at 80$^\circ$C}, \textbf{critical at 90$^\circ$C}, auto-\textbf{resolved at 77$^\circ$C}.
+\end{block}
+\end{frame}
+}
 
 % ===== Backend (from slides/beamer_Backend.tex) =====
 \section{Backend Performance and Operations}
@@ -412,23 +527,8 @@ Backend $\leftrightarrow$ files: read / update. \\
 Backend $\rightarrow$ scripts: execute / collect result.
 \end{frame}
 
-% ===== Alerting and Profiling (from slides/integration.tex) =====
-\section{Alerting and Profiling}
-
-\begin{frame}{Real-Time Alert Engine (\texttt{src/alerts.py})}
-    \begin{itemize}
-        \setlength{\itemsep}{11pt}
-        \item \textbf{What It Is:} A lightweight tool that monitors system health (CPU, RAM, temperatures) and notifies you when safety limits are exceeded.
-        \item \textbf{How It Works:} Only alerts if high load lasts for several readings in a row (ignoring brief spikes), uses cooldowns to avoid spam, and auto-resolves when levels return to normal.
-        \item \textbf{Topics Covered:}
-        \begin{itemize}
-            \setlength{\itemsep}{4pt}
-            \item \textbf{Finding the Culprit:} Identifies which app or process is causing the spike.
-            \item \textbf{Smart Data Handling:} Ignores cleaner gap-fills to prevent false alarms.
-            \item \textbf{Alert Channels:} Sends desktop popups and updates the web dashboard in real time.
-        \end{itemize}
-    \end{itemize}
-\end{frame}
+% ===== Integration and Profiling (from slides/integration.tex) =====
+\section{Integration and Profiling}
 
 \begin{frame}{Performance Profiling and Hardware Optimizations}
     \begin{itemize}

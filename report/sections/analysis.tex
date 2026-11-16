@@ -6,17 +6,15 @@ The analysis and automation subsystem encompasses the modules responsible for da
 \textbf{1. Statistical Analysis Engine (\texttt{src/analyzer.py}):}
 The analyzer transforms cleaned high-frequency telemetry into statistical summaries, predictive capacity forecasts, and anomaly indicators. 
 \begin{itemize}
-    \item \textbf{Input Data and Fields:} Ingests \texttt{data/clean/metrics.csv} (19 fields: 16 raw metrics plus \texttt{is\_filled}, \texttt{is\_gap}, \texttt{is\_outlier}), process records from \texttt{data/raw/processes\_YYYYMMDD.csv} (6 fields: \texttt{epoch}, \texttt{pid}, \texttt{command}, \texttt{cpu\_pct}, \texttt{mem\_pct}, \texttt{rank}), and system metadata from \texttt{data/system\_info.json}.
-    \item \textbf{Rolling Multi-Window Metrics:} Computes five core statistical metrics (mean, minimum maximum, 95th percentile and standard deviation) across four sliding windows (\texttt{1h}, \texttt{24h}, \texttt{7d}, \texttt{all}):
-    \item \textbf{Disk-Full Linear Forecast:} Fits Ordinary Least Squares (OLS) linear regression of $\text{disk\_used\_pct}$ over elapsed days: $m = \frac{\sum (x - \bar{x})(y - \bar{y})}{\sum (x - \bar{x})^2}$. Days to exhaustion is calculated as $\text{Days to Full} = \frac{100 - y_{\text{latest}}}{m}$, preempting unexpected storage full crashes. If slope is flat or negative, it returns \texttt{null}. 
-    \item \textbf{Z-Score Anomaly Counts:} Flags samples where $|z| = \frac{|x - \mu|}{\sigma} > 3.0$, detecting rare statistical anomalies that deviate beyond 3 standard deviations from the window mean.
+    \item \textbf{Input Data and Fields:} Ingests \path{data/clean/metrics.csv} (19 fields: 16 raw metrics plus \texttt{is\_filled}, \texttt{is\_gap}, \texttt{is\_outlier}), process records from \path{data/raw/processes_YYYYMMDD.csv} (6 fields: \texttt{epoch}, \texttt{pid}, \texttt{command}, \texttt{cpu\_pct}, \texttt{mem\_pct}, \texttt{rank}), and system metadata from \path{data/system_info.json}.
+    \item \textbf{Rolling Multi-Window Metrics:} Computes five core statistical metrics (mean, minimum, maximum, 95th percentile, and standard deviation) across four sliding windows (\texttt{1h}, \texttt{24h}, \texttt{7d}, \texttt{all}).
     \item \textbf{Hourly Averages:} Bins timestamps into 24 daily hours ($0\dots 23$) to uncover diurnal human and batch operational patterns. 
-    \item \textbf{Core-Normalized Top Processes:} Averages command CPU and memory across sample windows and normalizes CPU by physical cores: $\text{avg\_cpu\_norm} = \min\left(100.0, \frac{\text{avg\_cpu}}{\text{cpu\_cores}}\right)$, aligning process reporting with desktop resource managers.
-    \item \textbf{Design Decisions:} Sized windows for immediate reaction (\texttt{1h}), diurnal tracking (\texttt{24h}), and baseline trend (\texttt{7d}, \texttt{all}). Safe floating-point parsing (\texttt{parse\_float}) returns \texttt{None} on empty or non-numeric tokens without throwing exceptions, allowing non-GPU hosts to produce \texttt{null} statistics gracefully. Output is written atomically to \texttt{data/stats.json} via temporary file rename to prevent partial reads by the web API.
+    \item \textbf{Core-Normalized Top Processes:} Averages command CPU and memory across sample windows and normalizes CPU by physical cores: $\text{avg\_cpu\_norm} = \min\left(100.0, \frac{\text{avg\_cpu}}{\text{cpu\_cores}}\right)$, aligning process reporting with desktop resource managers. 
 \end{itemize}
+Sized windows allow immediate reaction (\texttt{1h}), diurnal tracking (\texttt{24h}), and baseline trends (\texttt{7d}, \texttt{all}). Safe floating-point parsing (\texttt{parse\_float}) returns \texttt{None} on empty or non-numeric tokens without throwing exceptions, allowing non-GPU hosts to produce \texttt{null} statistics gracefully. Output is written atomically to \path{data/stats.json} via temporary file rename to prevent partial reads by the web API.
 
 \textbf{2. Pipeline Runner (\texttt{bin/run\_pipeline.sh}):}
-The pipeline runner coordinates the batch processing lifecycle. It sequentially executes Cleaner $\rightarrow$ Analyzer $\rightarrow$ Alerts. The runner enforces fail-fast error isolation: if any stage exits with a non-zero code, execution halts immediately and logs the failure to \texttt{data/pipeline.log}. The script atomically writes duration and status to \texttt{data/pipeline\_status.json} using a process-isolated temporary file renamed via POSIX \texttt{mv}. To eliminate unnecessary computation, the runner implements file fingerprint caching (\texttt{.pipeline\_raw\_stamp}): if raw CSV file sizes and modification timestamps match the previous run, cleaner and analyzer stages are safely skipped. Subprocess thread explosions were eliminated by explicitly exporting \texttt{OPENBLAS\_NUM\_THREADS=1}, \texttt{OMP\_NUM\_THREADS=1}, and \texttt{MKL\_NUM\_THREADS=1}.
+The pipeline runner coordinates the batch processing lifecycle. It sequentially executes Cleaner $\rightarrow$ Analyzer $\rightarrow$ Alerts. The runner enforces fail-fast error isolation: if any stage exits with a non-zero code, execution halts immediately and logs the failure to \path{data/pipeline.log}. The script atomically writes duration and status to \path{data/pipeline_status.json} using a process-isolated temporary file renamed via POSIX \texttt{mv}. To eliminate unnecessary computation, the runner implements file fingerprint caching (\texttt{.pipeline\_raw\_stamp}): if raw CSV file sizes and modification timestamps match the previous run, cleaner and analyzer stages are safely skipped. Subprocess thread explosions were eliminated by explicitly exporting \texttt{OPENBLAS\_NUM\_THREADS=1}, \texttt{OMP\_NUM\_THREADS=1}, and \texttt{MKL\_NUM\_THREADS=1}.
 
 \textbf{3. Master System Launcher (\texttt{./sysmon}):}
 The root \texttt{./sysmon} executable enables one-command startup on a fresh clone without manual terminal configuration. It detects or builds the Python virtual environment (\texttt{.venv}), verifies dependencies from \texttt{requirements.txt} (bypassing pip on subsequent runs via fast Python import checks), initializes baseline configurations (\texttt{config/sysmon.conf} and \texttt{config/thresholds.conf} via \texttt{--init-defaults}), starts the Flask server, and automatically launches the browser dashboard.
@@ -27,7 +25,7 @@ Table~\ref{tab:analysis_automation_io} summarizes the interface contracts, confi
 \begin{table}[htbp]
     \centering
     \small
-    \begin{tabular}{llll}
+    \begin{tabularx}{\textwidth}{llXX}
         \toprule
         File / Artifact & Format & Written By & Read By \\
         \midrule
@@ -39,7 +37,7 @@ Table~\ref{tab:analysis_automation_io} summarizes the interface contracts, confi
         \texttt{data/pipeline\_status.json} & JSON & Pipeline Runner & Flask Server (\texttt{/api/status}) \\
         \texttt{data/.pipeline\_raw\_stamp} & Plain Text & Pipeline Runner & Pipeline Runner (Cache) \\
         \bottomrule
-    \end{tabular}
+    \end{tabularx}
     \caption{Analysis, Pipeline, and Launcher Interface Artifacts}
     \label{tab:analysis_automation_io}
 \end{table}

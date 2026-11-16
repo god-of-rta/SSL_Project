@@ -1,48 +1,44 @@
 \section{System Integration and Performance Profiling}
+\label{sec:integration_profiling}
 
-\subsection{Purpose and Design}
-The data formats and other architectural desgins were agreed upon and mentioned in Interfaces.md which made it easier for everyone to work independently and then integrate it into a single system.
+\subsection{Purpose and Subsystem Architecture}
+The data formats and interface contracts established early in \path{docs/INTERFACES.md} allowed individual team members to build and verify their respective subsystems in parallel. The entire suite integrates seamlessly through decoupled, deterministic filesystem contracts: 16-column raw metric CSVs, 6-column raw process CSVs, 19-column cleaned CSVs, JSON diagnostic files, and INI configuration files. 
 
-The subsystems communicate strictly through decoupled file contracts: 16-column raw metric CSVs, 6-column raw process CSVs, 19-column cleaned CSVs, JSON diagnostic files, and INI configuration files. The execution lifecycle is driven by \texttt{bin/run\_pipeline.sh}, which sequentially chains Cleaner $\rightarrow$ Analyzer $\rightarrow$ Alerts. 
+The batch processing lifecycle is coordinated by \path{bin/run_pipeline.sh}, which sequentially chains Cleaner $\to$ Analyzer $\to$ Alerts with fail-fast error isolation. At the system root, the \texttt{./sysmon} master launcher automates the complete operational bootstrapping sequence: virtual environment provisioning, dependency validation, default configuration initialization, Flask server invocation, and automatic browser dashboard launching.
 
-\textbf{One-Click Launcher (\texttt{./sysmon}):} To allow any user or grader to run the entire system on a fresh clone without manual terminal configuration, the root \texttt{./sysmon} executable automates all bootstrapping steps. 
+\subsection{Integration Challenges and Root-Cause Solutions}
+During full-system integration, the team confronted several subtle hardware and cross-platform engineering hurdles:
 
-\textbf{Integration Challenges and Solutions:} During integration, four major engineering hurdles were encountered:
-\begin{itemize}
-    \item \textbf{Mismatched Data Formats:} Heterogeneous environments produced missing GPU columns on headless machines and inconsistent float representations. We resolved this by implementing strict type coercers and safe parsing (\texttt{parse\_float}) across the cleaner and analyzer, ensuring null values are preserved without crashing numeric aggregators.
-    \item \textbf{Frozen Fields and Transient Process Spikes:} Process monitoring via \texttt{ps -eo} generated false CPU readings exceeding 100\% for newly spawned processes. Because Linux procfs calculates CPU percentage as total ticks divided by process elapsed time, newborn processes ($<2$~s old) and \texttt{ps} itself produced extreme division artifacts. We solved this by filtering out processes with \texttt{etimes} $<2$ and stripping command whitespace in \texttt{collector.sh}. \texttt{flock} is unavailable, explicitly strips carriage returns (\texttt{tr -d '\textbackslash r'}), and normalizes paths.
-    \item \textbf{Cpu temperature spike due to subprocess Thread Pool Explosion:} Invoking Python scripts initialized full 32-core OpenBLAS and OpenMP thread pools on every subprocess run, causing severe recurring CPU spikes. We clamped thread pools by exporting \texttt{OPENBLAS\_NUM\_THREADS=1}, \texttt{OMP\_NUM\_THREADS=1}, and \texttt{MKL\_NUM\_THREADS=1} in the shell runner.
-\end{itemize}
-	
-\subsection{Testing and Results}
-\textbf{Integration Testing:} Automated integration tests in \texttt{tests/test\_pipeline.py} and \texttt{tests/test\_collector.py} verify end-to-end operation. The suite checks launcher CLI flags (\texttt{--help}, \texttt{--init-defaults}, \texttt{--no-browser}), validates that \texttt{pipeline\_status.json} conforms to schema, confirms that a secondary \texttt{start.sh} call is rejected with exit code 2 (already running), and verifies that \texttt{stop.sh} cleanly removes PID and lock files.
+\begin{enumerate}
+    \item \textbf{Solving the CPU Heating and Temperature Spike Problem:}
+    During initial testing on high-performance laptops (such as 32-core AMD Ryzen 9 machines with hybrid graphics), running the monitoring suite caused noticeable CPU heating, thermal surges up to $95^\circ$C, and aggressive cooling fan ramping even while the laptop was completely idle. Profiling identified a combination of three root causes:
+    \begin{itemize}
+        \item \textit{Discrete GPU Thermal Bleed via Shared Laptop Heatpipes:} On modern hybrid-graphics laptops, the CPU and dedicated NVIDIA GPU share copper cooling heatpipes. The collector was invoking \texttt{nvidia-smi} every 5 seconds, which forced the PCIe bus to wake the dGPU from low-power PCI D3cold suspension ($0$\,W) into active D0 state ($25\text{--}35$\,W). This repeated wake-up dumped heat directly into the shared heatpipes, raising the idle CPU package temperature from $43^\circ$C to $58^\circ$C. We resolved this by inspecting the kernel PCI runtime power status (\path{/sys/bus/pci/devices/*/power/runtime_status}). If \texttt{suspended}, the collector skips \texttt{nvidia-smi} entirely, keeping the dGPU in zero-power sleep.
+        \item \textit{Subprocess Thread Pool Explosion:} When Python imported NumPy/Pandas in short-lived pipeline subprocesses, OpenBLAS and OpenMP automatically spawned worker thread pools matching all 32 logical CPU cores. Spawning 32 threads every 10 seconds caused severe CPU contention spikes. We resolved this by exporting \texttt{OPENBLAS\_NUM\_THREADS=1}, \texttt{OMP\_NUM\_THREADS=1}, and \texttt{MKL\_NUM\_THREADS=1} in both \path{bin/run_pipeline.sh} and \path{src/server.py}.
+        \item \textit{Unbounded Pipeline Execution Frequency:} Running the entire pipeline every 10 seconds prevented CPU cores from entering deep sleep C-states (C6/C7). We adjusted the default interval to 30\,s and implemented file fingerprint caching (\texttt{.pipeline\_raw\_stamp}): if raw telemetry file sizes and timestamps remain unchanged, redundant cleaner and analyzer runs are bypassed entirely.
+    \end{itemize}
 
-\textbf{Profiling Methodology and Bottlenecks:} We profiled resource consumption using \texttt{ps}, \texttt{time}, and Python's \texttt{cProfile} under both idle conditions and synthetic multi-core stress generated by \texttt{bin/stress.sh}. 
+    \item \textbf{Transient Process CPU Division Artifacts ($3000\%\text{--}4000\%$ CPU):}
+    Process monitoring via \texttt{ps -eo} generated false CPU readings exceeding $1000\%$. In Linux procfs, process CPU percentage is calculated as total accumulated clock ticks divided by process elapsed time ($\text{etimes}$). For short-lived processes (such as subshells or \texttt{ps} itself) living less than 2 seconds, dividing by fractional seconds created extreme division artifacts. We solved this by filtering out processes with $\text{etimes} < 2$ and stripping command whitespace in \path{bin/collector.sh}.
 
-Profiling identified a severe bottleneck on hybrid-graphics laptops: invoking \texttt{nvidia-smi} forced the dedicated NVIDIA GPU to wake up from low-power D3cold suspension into active D0 state. This wake-up introduced a 520~ms collection stall, doubled system power draw, and caused thermal spikes. We resolved this by inspecting the kernel PCI runtime power file (\texttt{/sys/bus/pci/devices/*/power/runtime\_status}). If \texttt{suspended}, the collector skips \texttt{nvidia-smi} entirely. This reduced polling latency from 520~ms to 18~ms and preserved hardware battery life.
+    \item \textbf{Process CPU Core-Count Normalization:}
+    Linux \texttt{ps} operates in Irix mode, reporting total CPU percentage summed across all cores (up to $3200\%$ on a 32-core machine). This confused users accustomed to desktop resource monitors bounded at $100\%$. We normalized process reporting by dividing average CPU by physical core count ($\text{avg\_cpu} / \text{cpu\_cores}$) and capping the result at $100.0\%$.
 
-Table~\ref{tab:profiling_benchmarks} reports the measured before-and-after performance metrics across the system components.
+\end{enumerate}
 
-\begin{table}[htbp]
+\subsection{Testing and Performance Verification}
+\textbf{Integration Testing Suite:} Automated integration tests in \path{tests/test_pipeline.py} and \path{tests/test_collector.py} verify end-to-end functionality. The test suite validates launcher CLI flags (\texttt{--help}, \texttt{--init-defaults}, \texttt{--no-browser}), checks schema conformance of \path{data/pipeline_status.json}, confirms that duplicate collector invocations exit with code 2 (already running), and verifies that \path{bin/stop.sh} cleanly removes PID and lock files.
+
+\textbf{Profiling Methodology and Benchmarks:} Resource consumption was measured under both idle conditions and synthetic multi-core stress generated by \path{bin/stress.sh}. Figure~\ref{fig:profiling_benchmarks} displays the live terminal benchmark measurements comparing the unoptimized baseline against the optimized system across the collector daemon, thermal states, pipeline execution, and memory footprint.
+
+\begin{figure}[htbp]
     \centering
-    \small
-    \begin{tabular}{lrrr}
-        \toprule
-        Metric / Component & Unoptimized Baseline & Optimized Implementation & Improvement \\
-        \midrule
-        Collector CPU (Idle) & 1.85\% & 0.32\% & $5.8\times$ reduction \\
-        Collector CPU (Stress Load) & 4.10\% & 0.74\% & $5.5\times$ reduction \\
-        Collector Resident RAM & 8.4 MB & 4.2 MB & $2.0\times$ reduction \\
-        Collector Polling Latency & 520 ms & 18 ms & $28.8\times$ faster \\
-        dGPU Idle Power State & Wakes to D0 (Active) & Stays in D3cold (Sleep) & Zero thermal penalty \\
-        Pipeline Time (Cold Run) & 0.65 s & 0.48 s & 26\% faster \\
-        Pipeline Time (Cached Run) & 0.65 s & 0.04 s & $16.2\times$ faster \\
-        Analyzer Runtime (5k rows) & 78 ms & 32 ms & $2.4\times$ faster \\
-        Analyzer Runtime (20k rows) & 240 ms & 110 ms & $2.2\times$ faster \\
-        Flask Server Resident RAM & 38.2 MB & 28.4 MB & 25\% reduction \\
-        \bottomrule
-    \end{tabular}
-    \caption{Measurable Profiling and Optimization Benchmarks}
-    \label{tab:profiling_benchmarks}
-\end{table}
+    \includegraphics[width=\textwidth]{figures/benchmark_results.png}
+    \caption{Empirical Profiling and Performance Optimization Benchmarks (Measured Live Terminal Output)}
+    \label{fig:profiling_benchmarks}
+\end{figure}
+
+\newpage
+\subsection{Conclusion and Future Work}
+The SysMon project successfully demonstrates that comprehensive, production-grade Unix observability does not require heavy runtime runtimes, third-party agents, or external database engines. By adhering to clean, decoupled filesystem contracts (16-column raw CSVs, 19-column cleaned CSVs, and atomic JSON descriptors), the system operates autonomously with a minimal probe footprint.
 

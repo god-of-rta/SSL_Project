@@ -1,0 +1,58 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc}
+\usepackage{docmute}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=teal
+}
+
+\title{\textbf{SysMon: Autonomous Low-Overhead Unix System Monitoring and Alerting Suite}}
+\author{
+    \begin{tabular}{ccc}
+        \textbf{Varun J Kumar} & \textbf{Sri Harsha Rangu} & \textbf{Amogh Chhuneja} \\
+        \texttt{CS25BT027} & \texttt{CS25BT050} & \texttt{CS25BT045} \\[0.6em]
+        \textbf{Prerit Devashetti} & \textbf{Amulya Ravi Koti} & \textbf{Amitha Reddy Kota} \\
+        \texttt{CS25BT008} & \texttt{MC25BT008} & \texttt{MC25BT002}
+    \end{tabular}\\[1em]
+    \large Software Systems Laboratory (SSL) Project
+}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+SysMon is a lightweight, Unix telemetry monitoring, cleaning, analysis, and alerting platform designed for Linux environments. By polling Linux procfs and sysfs directly without invoking heavy runtime tools, SysMon maintains a minimal CPU probe footprint and bounded memory usage. This report documents the end-to-end design, data collection, automated statistical cleaning, multi-window analysis, RESTful backend architecture, and integration benchmarks across the entire software lifecycle.
+\end{abstract}
+
+\newpage
+\tableofcontents
+\newpage
+
+\input{sections/introduction.tex}
+\input{sections/collector_cleaner.tex}
+\input{sections/analysis.tex}
+\input{sections/Backend_API_server_architecture.tex}
+\input{sections/frontend_alerts.tex}
+\input{sections/integration.tex}
+
+\end{document}

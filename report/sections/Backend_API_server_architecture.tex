@@ -1,52 +1,26 @@
-\documentclass[10pt,a4paper]{article}
+\section{Backend REST API and Application Server Architecture}
+\label{sec:backend_server}
 
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage{lmodern}
-\usepackage[a4paper,margin=0.62in]{geometry}
-\usepackage{microtype}
-\usepackage{enumitem}
-\usepackage{xcolor}
-\usepackage{booktabs}
-\usepackage{tabularx}
-\usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,fit,calc}
-\usepackage{hyperref}
-\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
-\setlength{\parindent}{0pt}
-\setlength{\parskip}{3pt}
-\setlist[itemize]{leftmargin=*,nosep}
-\setlist[enumerate]{leftmargin=*,nosep}
-\pagestyle{plain}
-
-\title{\vspace{-1.3em}\textbf{How the SysMon Backend Works}}
-\author{}
-\date{}
-
-\begin{document}
-\maketitle
-\vspace{-1.5em}
-
-\section*{1. What the backend does}
+\subsection{What the Backend Does}
 The backend is the middle layer between the dashboard (front end) and the files and scripts that collect system information. The dashboard asks the backend for information or asks it to perform an action. The backend checks the request, reads or updates the appropriate files, runs a script when needed, and sends a response (usually JSON) back to the dashboard.
 
 The Flask application listens locally on \texttt{127.0.0.1}. Its routes are grouped by purpose: status and system information, metrics, alerts, collector controls, pipeline execution, and configuration.
 
-\section*{2. Threads, locks, and the startup settings}
+\subsection{Threads, Locks, and the Startup Settings}
 \textbf{Threading -- problem and solution:} A scheduled data-processing job should not stop the web application from responding to dashboard requests while it waits to run. The code solves this by placing the periodic pipeline task in a separate background thread. The thread reads the configured interval, waits, and then starts the pipeline. It is a \texttt{daemon} thread, so it does not keep the application alive after the main program exits.
 
 \textbf{Thread lock -- problem and solution:} A user might press the Run Pipeline button repeatedly, or a manual request might arrive just as the automatic timer starts a run. Without protection, two pipeline executions could overlap, duplicate work, compete for CPU and interfere with files being processed. The \texttt{pipeline\_lock} acts like a one-at-a-time gate: both the timer and \texttt{POST /api/pipeline/run} must acquire it before starting. If the lock is already held, the new request is rejected (or the timer skips that run). This guarantees that only one pipeline execution is active at a time; it does not permanently block later runs. The lock is released even if execution fails.
 
 \textbf{Numerical-library thread limits -- problem and solution:} Pandas and NumPy can use numerical libraries that create their own worker threads. Too many extra threads can compete for CPU time and add overhead. Before importing these libraries, the code sets \texttt{OPENBLAS\_NUM\_THREADS}, \texttt{OMP\_NUM\_THREADS}, and \texttt{MKL\_NUM\_THREADS} to \texttt{1} when not already set. This limits those library thread pools and helps keep resource use predictable.
 
-\section*{3. Important file and data operations}
+\subsection{Important File and Data Operations}
 \textbf{\texttt{get\_file\_path} -- problem and solution:} Several endpoints need to locate files in the data folders. Rebuilding those paths separately in many places makes the code repetitive and increases the chance of looking in the wrong folder. This helper provides one consistent way to find a file in \texttt{data/} and its subfolders. During testing, fixture files can be used only when \texttt{SYSMON\_USE\_FIXTURES=1} is enabled; normal operation therefore continues to use real data.
 
 \textbf{Atomic writes -- problem and solution:} If a program writes directly over an existing JSON or configuration file, the file is usually emptied first and then filled. A reader that tries to open it during that brief write could see incomplete content; for JSON, parsing that partial content may fail. The functions \texttt{atomic\_write\_json} and \texttt{atomic\_write\_config} avoid this by writing the complete new content to a temporary file in the same directory, then replacing the old file with \texttt{os.replace}. A reader therefore sees the previous complete version or the new complete version, rather than a half-written file. Temporary files are cleaned up if the write fails. The JSON function is used for acknowledgement data, while the configuration function is used for INI files. \textit{This protects file integrity; it does not by itself coordinate two writers changing the same data at once. A separate lock would be needed to prevent one simultaneous update from overwriting another.}
 
 \textbf{Why Pandas instead of manually processing the CSV with \texttt{open()} -- problem and solution:} The metrics endpoint converts columns to numbers, finds a time range, sorts samples, combines fresh raw readings, groups readings into buckets, and calculates averages. A basic \texttt{open()} loop would typically scan rows and implement these steps manually, using extra loops and intermediate data structures. Finding recent records may still require reading earlier rows. Pandas treats the CSV as a table and provides optimised operations for filtering, sorting, and resampling, making this combined workload simpler and generally more efficient. This does not mean \texttt{open()} is always slow; Pandas is simply better suited to these data-analysis operations. In this implementation, \texttt{read\_csv()} still loads the clean CSV into memory before filtering. The code continues to use \texttt{open()} for simple JSON and PID files and the \texttt{csv} module for alerts.
 
-\section*{4. Metrics optimisation and bucket sizes}
+\subsection{Metrics Optimisation and Bucket Sizes}
 The metrics endpoint supports three time ranges. The code keeps a shorter sampling step for a short view and reduces the number of returned points for longer views:
 
 \begin{center}
@@ -66,7 +40,7 @@ The metrics endpoint supports three time ranges. The code keeps a shorter sampli
 
 \textbf{Important distinction:} in the current implementation, Pandas first loads the clean metrics CSV and then applies the requested time filter and downsampling. Therefore, downsampling directly reduces the data returned to the browser and the work required to display it; it does not by itself prevent a very large source CSV from using memory while being loaded by the backend. A further improvement for much larger datasets would be to read only the recent portion of the file, process it in chunks, or maintain pre-aggregated data for longer time ranges.
 
-\section*{5. Status, alerts, acknowledgement, and configuration}
+\subsection{Status, Alerts, Acknowledgement, and Configuration}
 \textbf{Get status -- \texttt{GET /api/status}:} Reports the server time, whether the collector appears to be running, its process ID when available, the newest sample time found in the data, and the last recorded pipeline result. It checks the status shell script and reads the relevant status/data files.
 
 \textbf{Get system and stats:} \texttt{GET /api/system} returns saved machine details such as CPU core information; \texttt{GET /api/stats} returns the saved statistics JSON. If a file is missing or cannot be read, these endpoints return an empty JSON object rather than stopping the whole server.
@@ -77,8 +51,7 @@ The metrics endpoint supports three time ranges. The code keeps a shorter sampli
 
 \textbf{Configuration -- problem and solution:} If collection intervals and alert thresholds were fixed in the Python code, even a small settings change would require editing and redeploying code. The configuration files let these choices be changed separately. \texttt{GET /api/config} reads \texttt{sysmon.conf} and \texttt{thresholds.conf}; they control collection intervals, GPU polling, data retention, and alert rules such as metric, comparison operator, threshold, duration, severity, and enabled state. \texttt{POST /api/config} validates data types, allowed metrics and operators, and sensible value ranges before saving the files atomically. This prevents invalid settings from being accepted and reduces the risk of a partial configuration file. The profile endpoint can also run the alert setup script to apply the \texttt{default} or \texttt{demo} profile.
 
-\clearpage
-\section*{6. How the front end, backend, files, and scripts connect}
+\subsection{How the Front End, Backend, Files, and Scripts Connect}
 The diagram shows the main direction of communication. \textbf{GET} requests ask for information; \textbf{POST} requests ask the backend to change something or run an action. CSV/JSON/config files are read or updated by the backend, while shell scripts are started by the backend for collector and pipeline operations.
 
 \begin{center}
@@ -136,5 +109,3 @@ The diagram shows the main direction of communication. \textbf{GET} requests ask
 \end{center}
 
 \textit{In summary: the dashboard does not directly manage the data files or run the system scripts. It sends a request to the backend; the backend acts as the controlled coordinator, works with the files or scripts, and returns the result.}
-
-\end{document}

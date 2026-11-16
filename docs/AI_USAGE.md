@@ -1,6 +1,6 @@
 # AI Usage Declaration
 
-Project: SysMon  · Last updated: 14/11/2026
+Project: SysMon  · Last updated: 15/11/2026
 
 ## Policy
 We used AI tools to assist with this project. Every member understands and can
@@ -9,76 +9,39 @@ explain the code and documents they submitted.
 ## Per-person log
 ### Varun (P1: Integrator + Analysis)
 - **Tools:** Claude, Antigravity
-- **What I used AI for:** 
-  - Designing the system architecture in `docs/INTERFACES.md` and defining task breakdowns.
-  - Mathematical formulations and anomaly detections in `src/analyzer.py`.
-  - Scaffolding unit and edge-case test suites in `tests/test_analyzer.py` and `tests/test_pipeline.py`.
-  - Shell syntax for the `./sysmon` master bootstrapper and `bin/run_pipeline.sh`.
-  - Reviewing code from others before merging to main branch.
-- **What the AI produced vs. what I wrote or changed myself:** 
-  - AI assisted with the shell flag parsing, initial test fixtures, and formula drafting.
-  - I verified the code, fixed any bugs that arose, and dealt with merge conflicts and system integration issues that arose during the course of the project.
-  - I identified system bottlenecks during testing and formulated how to fix them.
-- **How I checked it:** 
-  - Ran the full automated test suite (`pytest tests/test_analyzer.py`, `pytest tests/test_pipeline.py`) confirming all tests pass.
-  - Verified that `./sysmon` cleanly boots on a fresh clone without manual intervention.
+- **What I used AI for:** System architecture planning, statistical anomaly formulas in `src/analyzer.py`, test scaffolding, and pipeline runner automation.
+- **What the AI produced vs. what I wrote or changed myself:** AI drafted initial shell scripts and mathematical routines; I resolved merge conflicts, fixed edge cases, and implemented hardware optimizations.
+- **How I checked it:** Ran pytest test suites (`test_analyzer.py`, `test_pipeline.py`) and verified end-to-end `./sysmon` execution.
 
 ### Harsha (P2: Collector + Cleaner)
 - **Tools:** Gemini, Antigravity
-- **What I used AI for:**
-  - Shell script architecture and metric sampling logic for `bin/collector.sh`, POSIX signal trapping, low-overhead direct `/proc` and `/sys` parsing, and GPU power-state detection.
-  - Cross-platform process and lock management fallbacks for Git Bash / MSYS2 / Windows environments.
-  - Lifecycle management scripts (`bin/start.sh`, `bin/stop.sh`, `bin/status.sh`) with strict interface exit codes and stale PID validation.
-  - Plain-Python data cleaning pipeline (`src/cleaner.py`), including CSV schema validation, forward-fill gap interpolation ($\le 3$ samples), rolling-median outlier flagging, and automated retention pruning.
-  - Comprehensive unit test suites in `tests/test_collector.py` and `tests/test_cleaner.py`.
-  - LaTeX report chapter (`report/sections/collector_cleaner.tex`) and Beamer presentation slides (`report/sections/slides_collector_cleaner.tex`).
-- **What the AI produced vs. what I wrote or changed myself:**
-  - AI drafted initial shell loops, awk parsing routines, Python data validation structures, gap filling logic, and LaTeX report sections.
-  - I reviewed, tuned, and verified the scripts: fixed cross-platform Git Bash / MSYS2 compatibility issues (line endings, lock fallbacks, netstat fallback), tested the lifecycle scripts against race conditions, confirmed mathematical correctness of CPU/network delta calculations, verified that outlier flags do not drop real workload spikes, and ran full test suite checks.
-- **How I checked it:**
-  - Ran unit tests: `pytest tests/test_collector.py` and `pytest tests/test_cleaner.py` (both passing 100%).
-  - Verified live metrics in `data/raw/metrics_YYYYMMDD.csv` (16 columns), `data/raw/processes_YYYYMMDD.csv` (6 columns), `data/system_info.json`, `data/clean/metrics.csv` (19 columns), and `data/clean/cleaning_report.json`.
-  - Validated collector lifecycle under multiple concurrent starts, abrupt SIGTERM, and stale PID recovery.
+- **What I used AI for:** Shell sampling logic for `bin/collector.sh`, control scripts (`start.sh`, `stop.sh`, `status.sh`), data cleaning in `src/cleaner.py`, and LaTeX/Beamer slides.
+- **What the AI produced vs. what I wrote or changed myself:** AI drafted shell loops, CSV parsing, and gap-filling logic; I resolved Windows/Git Bash compatibility, race conditions, and signal handling.
+- **How I checked it:** Validated with `pytest tests/test_cleaner.py` and `pytest tests/test_collector.py`, verifying live CSV outputs and collector lifecycle.
 
-### Prerit 
-- **Tools:** 
-- **What I used AI for:** 
-- **What the AI produced vs. what I wrote or changed myself:** 
-- **How I checked it:**
+### Prerit (P3: Frontend UI/UX)
+- **Tools:** ChatGPT
+- **What I used AI for:** Designing the frontend UI/UX layout, HTML5/CSS3 dashboard structure, and Chart.js telemetry visualization components.
+- **What the AI produced vs. what I wrote or changed myself:** AI suggested dashboard templates and styling rules; I customized the dark-theme UI, integrated live REST API data feeds, and refined layout responsiveness.
+- **How I checked it:** Tested web dashboard responsiveness across desktop browsers, verified live chart updates, and inspected browser console logs for errors.
 
-### Amogh
-- **Tools:** ChatGPT, Gemini.
-- **What I used AI for:**
-  - Creating and refining the LaTeX/TikZ diagram showing the backend architecture and communication flow.
-  - Understanding and implementing the use of Python libraries:
-    - `threading` — running the periodic pipeline task in a background thread and using `threading.Lock()` to prevent overlapping pipeline executions.
-    - `subprocess` — executing the predefined shell scripts (`start.sh`, `stop.sh`, `status.sh`, and `run_pipeline.sh`) and the Python alert script from the backend.
-    - `configparser` — reading and updating settings in `sysmon.conf` and `thresholds.conf`.
-  - Improving input validation and safer request handling using `isinstance()` checks, type checks, and value-range validation.
-  - Understanding the purpose and usage of library functions while developing the backend.
+### Amogh (P4: Backend & Systems)
+- **Tools:** ChatGPT, Gemini
+- **What I used AI for:** Designing Flask backend architecture, threading and lock management in `server.py`, subprocess execution, and the LaTeX/TikZ data flow diagram.
+- **What the AI produced vs. what I wrote or changed myself:** AI provided boilerplate examples and initial diagram drafts; I implemented strict input validation (`isinstance`), configuration parsers, and safe process execution.
+- **How I checked it:** Verified API endpoints with curl, tested daemon thread concurrency, and compiled LaTeX TikZ diagrams without errors.
 
-- **What the AI produced vs. what I wrote or changed myself:**
-  - AI provided explanations, implementation suggestions, examples, and initial diagram drafts.
-  - I reviewed the suggestions, selected what was relevant to the project, and adapted the code and diagram to match the actual backend.
-  - I changed and integrated the validation logic, script execution flow, configuration handling, and aggregation choices instead of using suggested output without review.
+### Amitha (P5: Testing & Documentation)
+- **Tools:** Claude
+- **What I used AI for:** LaTeX report and presentation modular assembly, merging individual `.tex` sections, and designing stress-testing simulation scripts.
+- **What the AI produced vs. what I wrote or changed myself:** AI assisted with LaTeX formatting syntax and stress simulation templates; I resolved compilation conflicts, aligned cross-references, and executed multi-core stress tests.
+- **How I checked it:** Compiled master `report.pdf` and `slides.pdf` cleanly using pdflatex, and validated system stability under simulated CPU/memory loads.
 
-- **How I checked it:**
-  - I read relevant documentation for the Python libraries and functions to understand their purpose, parameters, return values, and behaviour.
-  - I compared the documentation with how each function was used in `server.py` and reviewed the surrounding code before incorporating suggestions.
-  - I compiled the LaTeX source and visually checked the generated diagram and report layout.
-
-
-### Amitha 
-- **Tools:** 
-- **What I used AI for:** 
-- **What the AI produced vs. what I wrote or changed myself:** 
-- **How I checked it:**
-
-### Amulya 
-- **Tools:** 
-- **What I used AI for:** 
-- **What the AI produced vs. what I wrote or changed myself:** 
-- **How I checked it:**
+### Amulya (P6: Alerts & Profiling)
+- **Tools:** Claude
+- **What I used AI for:** Implementing rule-based threshold evaluation in `src/alerts.py` and benchmarking system execution profiles for the final report.
+- **What the AI produced vs. what I wrote or changed myself:** AI suggested notification dispatch structures and profiling helper routines; I calibrated metric thresholds, tuned execution bottlenecks, and wrote alerts integration logic.
+- **How I checked it:** Verified alert triggers against simulated threshold breaches, inspected log outputs, and measured runtime latency across collection cycles.
 
 ## Team-level use
 The project plan, role split, task list and the first draft of INTERFACES.md
